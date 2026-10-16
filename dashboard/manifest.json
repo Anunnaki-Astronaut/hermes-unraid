@@ -1,0 +1,12 @@
+{
+  "name": "unraid",
+  "label": "Unraid",
+  "description": "Read-only backend for the native Hermes Desktop Unraid page.",
+  "icon": "Server",
+  "version": "0.2.0",
+  "tab": {
+    "hidden": true
+  },
+  "slots": [],
+  "api": "plugin_api.py"
+}

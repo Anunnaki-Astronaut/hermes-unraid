@@ -1,0 +1,23 @@
+name: unraid
+label: Unraid
+version: 0.2.0
+description: Read-only Hermes Desktop integration for the official Unraid GraphQL API.
+manifest_version: 1
+requires_hermes: ">=0.22.2"
+config_schema:
+  url:
+    type: string
+    label: Unraid GraphQL URL
+    description: Full endpoint URL ending in /graphql. Include your Unraid WebGUI port when it uses a custom port, for example http://192.168.1.50:88/graphql. Plain HTTP requires the trusted-LAN override.
+    required: true
+  api_key:
+    type: secret
+    env: UNRAID_API_KEY
+    label: Unraid API key
+    description: Stored in the selected Hermes profile's protected .env credential store and never returned to the desktop page.
+    required: true
+  allow_insecure_http:
+    type: boolean
+    label: Allow plain HTTP on a trusted LAN
+    description: Off by default. Enable only when this Hermes machine reaches Unraid over a trusted private network and HTTPS is unavailable.
+    default: false

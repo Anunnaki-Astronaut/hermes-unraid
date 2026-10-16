@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+.screenshots-preview/
+.coverage
+htmlcov/
+dist/
+*.log
+.env
+.env.*
+!.env.example
