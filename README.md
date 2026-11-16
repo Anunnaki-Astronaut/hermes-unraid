@@ -11,9 +11,12 @@ A read-only Unraid monitor for Hermes Desktop. It puts array capacity, Docker co
 - Server and Unraid version
 - CPU and memory use
 - Array capacity, parity-check state, storage temperatures, and reported errors
+- An asleep indicator when Unraid explicitly reports a drive spun down and no temperature is available
 - Running and stopped Docker containers
 - Running and shut-down virtual machines
 - Grouped warning and alert notifications
+
+Appearance can match Hermes Desktop (the default), follow your system setting, or stay Light or Dark. The cards rearrange as the plugin pane gets narrower.
 
 The plugin is monitoring-only. It does not use SSH, MCP, shell commands, Unraid Connect, or GraphQL mutations.
 
@@ -173,6 +176,7 @@ Tests use mocked Unraid responses and do not need a server or API key.
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 node --check desktop/plugin.js
+node --experimental-vm-modules --test tests/ui/*.test.cjs
 ```
 
 The checked-in screenshots are rendered from the real Desktop component with deterministic sample data:
@@ -183,7 +187,7 @@ node --experimental-vm-modules scripts/render_screenshot.cjs overview .screensho
 
 ## Project status
 
-Version 0.2.0 is the first public release. Monitoring is intentionally read-only. Any future repair or control feature should be a separate, clearly approved capability rather than an extension of the current API key permissions.
+Version 0.3.0 updates the Desktop layout and fixes the Overview disk list. Monitoring remains read-only. Any future repair or control feature needs a separate design and security review.
 
 ## License
 

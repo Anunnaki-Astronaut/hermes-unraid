@@ -2,6 +2,16 @@
 
 All notable changes are recorded here.
 
+## 0.3.0
+
+- Reworked the Desktop page so array, parity, load, notifications, and storage are easier to scan.
+- Added Match desktop, System, Light, and Dark appearance choices. The setting changes this plugin, not the rest of Hermes.
+- Fixed the empty storage card on Overview. Disk rows now come from the Array response rather than the disk-less overview summary.
+- A drive Unraid explicitly marks spun down shows "Zzz · Asleep" when it has no temperature reading. A missing reading on its own still says "Unknown."
+- Cards reflow with the pane width. Narrow Array and Alerts views keep their device state and alert text visible.
+- Added component tests and replaced the documentation screenshots with synthetic examples of the new layout.
+- Unraid access remains limited to the existing read-only GraphQL queries.
+
 ## 0.2.0
 
 - Added the Control Deck interface for Overview, Array, Docker, VMs, and Alerts.

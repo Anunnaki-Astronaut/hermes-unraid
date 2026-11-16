@@ -11,3 +11,24 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Local code indexing and agent-only work
+/.codegraph/
+/codegraph.json
+/.hermes/
+/graphify-out/
+/.graphifyignore
+/AGENTS.md
+
+# Local artifacts and editor files
+/release/
+.DS_Store
+*.swp
+*.bak
+*.bundle
+*.patch
+.idea/
+.vscode/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

@@ -13,6 +13,7 @@ Small, focused changes are easiest to review.
    python -m pip install -r requirements-dev.txt
    python -m pytest -q
    node --check desktop/plugin.js
+   node --experimental-vm-modules --test tests/ui/*.test.cjs
    ```
 
 5. Explain the visible behavior change and how you verified it.

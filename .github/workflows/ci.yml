@@ -26,6 +26,8 @@ jobs:
         run: python -m pytest -q
       - name: Check Desktop JavaScript
         run: node --check desktop/plugin.js
+      - name: Test Desktop component
+        run: node --experimental-vm-modules --test tests/ui/*.test.cjs
       - name: Check screenshot renderer
         run: |
           node --check scripts/render_screenshot.cjs

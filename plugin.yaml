@@ -1,6 +1,6 @@
 name: unraid
 label: Unraid
-version: 0.2.0
+version: 0.3.0
 description: Read-only Hermes Desktop integration for the official Unraid GraphQL API.
 manifest_version: 1
 requires_hermes: ">=0.22.2"
