@@ -187,7 +187,7 @@ node --experimental-vm-modules scripts/render_screenshot.cjs overview .screensho
 
 ## Project status
 
-Version 0.3.0 updates the Desktop layout and fixes the Overview disk list. Monitoring remains read-only. Any future repair or control feature needs a separate design and security review.
+Version 0.3.1 clarifies in Settings that Unraid is a live read-only Desktop monitor, not an analyzer or repair tool. This release changes no features or permissions; its HTTP User-Agent version also changes. Any future repair or control feature needs a separate design and security review.
 
 ## License
 

@@ -232,7 +232,7 @@ def execute_query(name: str, config: UnraidConfig | None = None) -> dict[str, An
             "Content-Type": "application/json",
             "Accept": "application/json",
             "x-api-key": cfg.api_key,
-            "User-Agent": "Hermes-Unraid/0.3.0",
+            "User-Agent": "Hermes-Unraid/0.3.1",
         },
     )
     try:

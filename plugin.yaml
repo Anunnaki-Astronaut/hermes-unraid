@@ -1,7 +1,7 @@
 name: unraid
 label: Unraid
-version: 0.3.0
-description: Read-only Hermes Desktop integration for the official Unraid GraphQL API.
+version: 0.3.1
+description: Live read-only Hermes Desktop monitor of Unraid array, disks, Docker containers, VMs, and alerts via the official GraphQL API; not an analyzer or repair tool.
 manifest_version: 1
 requires_hermes: ">=0.22.2"
 config_schema:

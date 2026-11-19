@@ -2,6 +2,11 @@
 
 All notable changes are recorded here.
 
+## 0.3.1
+
+- Clarified the Settings description: Unraid is a live read-only Desktop monitor, not an analyzer or repair tool.
+- No feature or permission changes; the version also updates the HTTP User-Agent identifier.
+
 ## 0.3.0
 
 - Reworked the Desktop page so array, parity, load, notifications, and storage are easier to scan.

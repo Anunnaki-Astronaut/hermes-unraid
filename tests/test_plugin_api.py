@@ -30,7 +30,7 @@ def test_health_is_safe_when_unconfigured(monkeypatch):
         "configured": False,
         "connected": False,
         "read_only": True,
-        "version": "0.3.0",
+        "version": "0.3.1",
         "message": "UNRAID_URL is not configured.",
     }
 
