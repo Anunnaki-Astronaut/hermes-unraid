@@ -17,7 +17,7 @@ const SERVER_ICON = 'server';
 const SETTINGS_ROUTE = '/settings?tab=plugins&plugin=unraid';
 const AGENT_SETTINGS_ROUTE = '/settings?tab=plugins&agent=unraid';
 // Shared by the Dashboard and Settings; the UI tests check it against plugin.yaml.
-const PLUGIN_VERSION = '0.3.1';
+const PLUGIN_VERSION = '0.3.2';
 const APPEARANCE_KEY = 'unraid.appearance';
 const APPEARANCE_CHOICES = ['match', 'system', 'light', 'dark'];
 const APPEARANCE_LABELS = { match: 'Match Desktop', system: 'System', light: 'Light', dark: 'Dark' };

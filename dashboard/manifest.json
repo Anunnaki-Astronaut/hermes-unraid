@@ -3,7 +3,7 @@
   "label": "Unraid",
   "description": "Read-only GraphQL backend for the live Hermes Desktop Unraid monitor; not a diagnostics or repair tool.",
   "icon": "Server",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "tab": {
     "hidden": true
   },

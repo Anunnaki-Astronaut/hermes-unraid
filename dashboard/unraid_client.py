@@ -6,10 +6,11 @@ import os
 import socket
 import ssl
 from dataclasses import dataclass
+from http.client import HTTPConnection
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
 
 
 class UnraidConfigurationError(ValueError):
@@ -107,22 +108,53 @@ def load_config(environ: Mapping[str, str] | None = None, settings: Mapping[str,
     return UnraidConfig(endpoint=endpoint, api_key=api_key, timeout_seconds=timeout)
 
 
+def _is_private_address(address: str) -> bool:
+    ip = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address):
+        ip = ip.ipv4_mapped or ip
+    return ip.is_private or ip.is_loopback
+
+
 def _is_private_host(hostname: str) -> bool:
     lowered = hostname.lower().rstrip(".")
     if lowered in {"localhost"} or lowered.endswith((".local", ".lan", ".home", ".internal")):
         return True
     try:
-        return ipaddress.ip_address(lowered).is_private or ipaddress.ip_address(lowered).is_loopback
+        return _is_private_address(lowered)
     except ValueError:
         pass
     try:
         addresses = {item[4][0] for item in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)}
     except OSError:
         return False
-    return bool(addresses) and all(
-        ipaddress.ip_address(address).is_private or ipaddress.ip_address(address).is_loopback
-        for address in addresses
-    )
+    return bool(addresses) and all(isinstance(address, str) and _is_private_address(address) for address in addresses)
+
+
+class _LanHTTPConnection(HTTPConnection):
+    _tunnel_host: str | None  # Initialized by HTTPConnection.
+
+    def connect(self):
+        if self._tunnel_host:
+            raise OSError("Plain HTTP requires a direct LAN connection.")
+        super().connect()
+        # Check the socket that will carry the request, before send() writes anything.
+        try:
+            if _is_private_address(self.sock.getpeername()[0]):
+                return
+        except (OSError, ValueError):
+            pass
+        self.close()
+        raise OSError("Plain HTTP requires a verified private or loopback peer address.")
+
+
+class _LanHTTPHandler(HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_LanHTTPConnection, req)
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def endpoint_summary(config: UnraidConfig) -> dict[str, Any]:
@@ -232,11 +264,16 @@ def execute_query(name: str, config: UnraidConfig | None = None) -> dict[str, An
             "Content-Type": "application/json",
             "Accept": "application/json",
             "x-api-key": cfg.api_key,
-            "User-Agent": "Hermes-Unraid/0.3.1",
+            "User-Agent": "Hermes-Unraid/0.3.2",
         },
     )
     try:
-        with urlopen(request, timeout=cfg.timeout_seconds, context=ssl.create_default_context()) as response:
+        if request.type == "http":
+            opener = build_opener(ProxyHandler({}), _LanHTTPHandler(), _NoRedirect())
+            response = opener.open(request, timeout=cfg.timeout_seconds)
+        else:
+            response = urlopen(request, timeout=cfg.timeout_seconds, context=ssl.create_default_context())
+        with response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in {401, 403}:

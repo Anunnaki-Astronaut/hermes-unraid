@@ -22,6 +22,9 @@ dist/
 /HANDOFF.md
 /NOTES.local.md
 /.release-local/
+# Hermes Security reports can contain local paths and model metadata.
+report.md
+scan-manifest.json
 
 # Local artifacts and editor files
 /release/

@@ -2,6 +2,11 @@
 
 All notable changes are recorded here.
 
+## 0.3.2
+
+- Hardened the opt-in plain HTTP mode: verify the connected peer is private or loopback before sending the Unraid API key. Plain HTTP connects directly, ignores proxy settings, and does not follow redirects.
+- HTTPS remains the default with certificate verification. The LAN HTTP switch remains off by default; read-only queries and permissions are unchanged.
+
 ## 0.3.1
 
 - Added a dashboard gear that opens native Unraid Settings, with a link to the selected profile’s secure Agent settings.

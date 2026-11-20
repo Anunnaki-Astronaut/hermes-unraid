@@ -191,7 +191,7 @@ node --experimental-vm-modules scripts/render_screenshot.cjs overview .screensho
 
 ## Project status
 
-Version 0.3.1 adds native Settings, Theme Maker, and a dashboard header that shares its version label with Settings. The monitor remains read-only, with the same queries and permissions. See [the changelog](CHANGELOG.md) for details.
+Version 0.3.2 hardens the opt-in LAN HTTP mode: it requires a direct connection to a private or loopback address before sending the Unraid API key and does not follow redirects. If you use plain HTTP, configure the final `/graphql` endpoint directly. HTTPS remains the default, and queries and permissions are unchanged. See [the changelog](CHANGELOG.md) for details.
 
 ## License
 
