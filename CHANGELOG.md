@@ -4,8 +4,10 @@ All notable changes are recorded here.
 
 ## 0.3.1
 
-- Clarified the Settings description: Unraid is a live read-only Desktop monitor, not an analyzer or repair tool.
-- No feature or permission changes; the version also updates the HTTP User-Agent identifier.
+- Added a dashboard gear that opens native Unraid Settings, with a link to the selected profile’s secure Agent settings.
+- Added Theme Maker with five presets, editable Light and Dark palettes, a sample preview, and contrast checks. Appearance stays local to Unraid; saved palettes are separate per Desktop profile.
+- Updated the dashboard header with the native stacked-server icon and release version. Appearance controls are icon-only with accessible labels.
+- Clarified that Unraid is a read-only monitor, not an analyzer or repair tool. No changes to queries or permissions; the HTTP User-Agent now reports the release version.
 
 ## 0.3.0
 

@@ -36,25 +36,26 @@ function styleText(style) {
     .join(';');
 }
 
-function render(node, Fragment) {
+function render(node, Fragment, visit = () => {}) {
   if (node == null || node === false || node === true) return '';
   if (typeof node === 'string' || typeof node === 'number') return escapeHtml(node);
-  if (Array.isArray(node)) return node.map((child) => render(child, Fragment)).join('');
-  if (node.type === Fragment) return render(node.props.children, Fragment);
-  if (typeof node.type === 'function') return render(node.type(node.props || {}), Fragment);
+  if (Array.isArray(node)) return node.map((child) => render(child, Fragment, visit)).join('');
+  if (node.type === Fragment) return render(node.props.children, Fragment, visit);
+  if (typeof node.type === 'function') return render(node.type(node.props || {}), Fragment, visit);
   const tag = node.type;
   const props = node.props || {};
+  visit(node);
   if (tag === 'style') return `<style>${props.children || ''}</style>`;
   const attrs = [];
   for (const [key, value] of Object.entries(props)) {
-    if (key === 'children' || key === 'className' || key === 'style' || key.startsWith('on') || value == null || value === false) continue;
+    if (key === 'children' || key === 'className' || key === 'style' || key.startsWith('on') || value == null || (value === false && !key.startsWith('aria-'))) continue;
     const name = key === 'htmlFor' ? 'for' : key === 'strokeWidth' ? 'stroke-width' : key;
     const rendered = value === true && key.startsWith('aria-') ? 'true' : value === true ? '' : value;
     attrs.push(`${name}="${escapeHtml(rendered)}"`);
   }
   if (props.className) attrs.push(`class="${escapeHtml(props.className)}"`);
   if (props.style) attrs.push(`style="${escapeHtml(styleText(props.style))}"`);
-  return `<${tag}${attrs.length ? ` ${attrs.join(' ')}` : ''}>${render(props.children, Fragment)}</${tag}>`;
+  return `<${tag}${attrs.length ? ` ${attrs.join(' ')}` : ''}>${render(props.children, Fragment, visit)}</${tag}>`;
 }
 
 function buildStates(options) {
@@ -66,8 +67,8 @@ function buildStates(options) {
     updatedAt: NOW,
   });
   return [
-    options.appearance || 'match',
-    options.systemDark === true,
+    options.appearance,
+    options.systemDark,
     state(options.responses?.health ?? { configured: true }),
     state(options.responses?.overview ?? { data: {} }, options.errors?.overview),
     state(options.responses?.array ?? { data: {} }, options.errors?.array),
@@ -80,8 +81,22 @@ function buildStates(options) {
 }
 
 async function loadPlugin(options = {}) {
-  const states = buildStates(options);
+  let view;
   let stateIndex = 0;
+  let effectIndex = 0;
+  const forbiddenCalls = [];
+  const navigations = [];
+  let profile = options.profile || 'default';
+  const deny = (name) => () => {
+    forbiddenCalls.push(name);
+    throw new Error(`Unexpected SDK/DOM call in offline fixture: ${name}`);
+  };
+  const mediaListeners = new Set();
+  const media = {
+    matches: options.systemDark === true,
+    addEventListener(type, listener) { if (type === 'change') mediaListeners.add(listener); },
+    removeEventListener(type, listener) { if (type === 'change') mediaListeners.delete(listener); },
+  };
 
   const context = vm.createContext({
     console,
@@ -96,19 +111,39 @@ async function loadPlugin(options = {}) {
     Intl,
     Promise,
     Set,
-    window: { setInterval() { return 1; }, clearInterval() {} },
+    fetch: deny('fetch'),
+    window: {
+      fetch: deny('window.fetch'),
+      matchMedia: () => media,
+      setInterval: deny('setInterval'),
+      clearInterval() {},
+    },
   });
 
   const Fragment = Symbol('Fragment');
   const reactDefault = { Fragment };
-  const react = new vm.SyntheticModule(['default', 'useCallback', 'useEffect', 'useMemo', 'useState'], function () {
+  const react = new vm.SyntheticModule(['default', 'useCallback', 'useEffect', 'useMemo', 'useState', 'useSyncExternalStore'], function () {
     this.setExport('default', reactDefault);
+    this.setExport('useSyncExternalStore', (_subscribe, get) => get());
     this.setExport('useCallback', (fn) => fn);
-    this.setExport('useEffect', () => {});
+    this.setExport('useEffect', (fn, deps) => {
+      if (!view.runEffects) return;
+      const index = effectIndex++;
+      const previous = view.effects[index];
+      if (!previous || !deps || previous.deps?.length !== deps.length || deps.some((dep, i) => !Object.is(dep, previous.deps[i]))) {
+        const target = view;
+        view.pending.push(() => {
+          previous?.cleanup?.();
+          target.effects[index] = { deps, cleanup: fn() };
+        });
+      }
+    });
     this.setExport('useMemo', (fn) => fn());
     this.setExport('useState', (initial) => {
-      const value = stateIndex < states.length ? states[stateIndex++] : typeof initial === 'function' ? initial() : initial;
-      return [value, () => {}];
+      const index = stateIndex++;
+      const values = view.states;
+      if (!(index in values)) values[index] = view.seed[index] ?? (typeof initial === 'function' ? initial() : initial);
+      return [values[index], (next) => { values[index] = typeof next === 'function' ? next(values[index]) : next; }];
     });
   }, { context });
 
@@ -119,14 +154,22 @@ async function loadPlugin(options = {}) {
   }, { context });
 
   const Button = (props) => jsxFn('button', { ...props, className: `preview-button ${props.className || ''}`.trim(), type: 'button' });
+  const Codicon = ({ name, size }) => jsxFn('i', { className: `codicon codicon-${name}`, 'aria-hidden': true, style: { fontSize: size } });
   const StatusDot = ({ tone }) => jsxFn('span', { className: `preview-status-dot preview-${tone}`, 'aria-hidden': true });
   const sdk = new vm.SyntheticModule(
-    ['Button', 'ErrorState', 'GlyphSpinner', 'host', 'PALETTE_AREA', 'ROUTES_AREA', 'SIDEBAR_NAV_AREA', 'StatusDot'],
+    ['Button', 'Codicon', 'ErrorState', 'GlyphSpinner', 'host', 'PALETTE_AREA', 'ROUTES_AREA', 'SIDEBAR_NAV_AREA', 'StatusDot'],
     function () {
       this.setExport('Button', Button);
+      this.setExport('Codicon', Codicon);
       this.setExport('ErrorState', (props) => jsxFn('div', { children: props.description }));
       this.setExport('GlyphSpinner', () => jsxFn('span', { children: 'Loading' }));
-      this.setExport('host', { navigate() {} });
+      this.setExport('host', {
+        state: { profile: { get: () => profile } },
+        navigate: (route) => navigations.push(route),
+        request: deny('host.request'),
+        onEvent: deny('host.onEvent'),
+        settings: new Proxy({}, { get: deny('host.settings') }),
+      });
       this.setExport('PALETTE_AREA', 'palette');
       this.setExport('ROUTES_AREA', 'routes');
       this.setExport('SIDEBAR_NAV_AREA', 'sidebar');
@@ -142,20 +185,52 @@ async function loadPlugin(options = {}) {
   await module.evaluate();
 
   const registrations = [];
+  const settingsPages = [];
   const storage = options.storage || {
     _value: undefined,
     get(key) { return key === 'unraid.appearance' ? this._value : undefined; },
     set(key, value) { if (key === 'unraid.appearance') this._value = value; },
   };
   module.namespace.default.register({
-    rest: async () => ({}),
+    rest: deny('ctx.rest'),
+    socket: deny('ctx.socket'),
     registerMany: (items) => registrations.push(...items),
+    ...(options.legacyHost ? {} : { registerSettingsPage: (page) => settingsPages.push(page) }),
     storage,
   });
 
+  function mount(contribution, seed = [], runEffects = true) {
+    const target = { states: [], seed, runEffects, effects: [], pending: [] };
+    return {
+      render() {
+        view = target;
+        stateIndex = 0;
+        effectIndex = 0;
+        const controls = new Map();
+        const elements = [];
+        const html = render(contribution.render(), Fragment, ({ type, props }) => {
+          elements.push({ type, props });
+          if (type === 'button' && typeof props.onClick === 'function') {
+            controls.set(props['aria-label'] ?? props.children, props);
+          }
+        });
+        target.pending.splice(0).forEach((effect) => effect());
+        return { html, controls, elements };
+      },
+      unmount() { target.effects.forEach(({ cleanup }) => cleanup?.()); },
+    };
+  }
+
   const page = registrations.find((item) => item.id === 'page');
-  const html = render(page.render(), Fragment);
-  return { html, mod: module.namespace, storage, registrations };
+  const mountDashboard = () => mount(page, buildStates(options), false);
+  const { html } = mountDashboard().render();
+  return {
+    html, mod: module.namespace, storage, registrations, settingsPages, navigations, forbiddenCalls,
+    mountDashboard, mountSettings: () => mount(settingsPages[0]),
+    setProfile(value) { profile = value; },
+    setSystemDark(matches) { media.matches = matches; for (const listener of mediaListeners) listener({ matches }); },
+    systemListeners: () => mediaListeners.size,
+  };
 }
 
 module.exports = { loadPlugin, render, escapeHtml, ROOT, NOW };

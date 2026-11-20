@@ -311,7 +311,7 @@ test('configured page exposes all five tabs, refresh, and the appearance control
   for (const label of ['Overview', 'Array', 'Docker', 'VMs', 'Alerts', 'Refresh']) {
     assert.ok(html.includes(label), `expected ${label} control`);
   }
-  for (const choice of ['Match desktop', 'System', 'Light', 'Dark']) {
+  for (const choice of ['Match Desktop', 'System', 'Light', 'Dark']) {
     assert.ok(html.includes(choice), `expected appearance choice ${choice}`);
   }
   assert.ok((html.match(/role="tab"/g) || []).length === 5, 'expected exactly five tabs');

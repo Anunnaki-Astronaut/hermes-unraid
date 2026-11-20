@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /* Render the real Desktop component against deterministic sample data.
- * Usage: node --experimental-vm-modules scripts/render_screenshot.cjs <tab> <output.html> [match|system|light|dark]
+ * Usage: node --experimental-vm-modules scripts/render_screenshot.cjs <tab|settings> <output.html> [match|system|light|dark] [open]
  */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const validTabs = new Set(['overview', 'array', 'docker', 'vms', 'alerts']);
+const validTabs = new Set(['overview', 'array', 'docker', 'vms', 'alerts', 'settings']);
 const tab = process.argv[2] || 'overview';
 if (!validTabs.has(tab)) {
   console.error(`Unknown tab: ${tab}`);
@@ -14,6 +14,7 @@ if (!validTabs.has(tab)) {
 }
 const output = path.resolve(process.argv[3] || `.screenshots-preview/${tab}.html`);
 const appearance = process.argv[4] || 'match';
+const showMaker = tab === 'settings' && process.argv[5] === 'open';
 if (!new Set(['match', 'system', 'light', 'dark']).has(appearance)) {
   console.error(`Unknown appearance: ${appearance}`);
   process.exit(2);
@@ -73,22 +74,26 @@ const context = vm.createContext({ console, JSON, Date, Map, Math, Number, Strin
 const Fragment = Symbol('Fragment');
 const reactDefault = { Fragment };
 let stateIndex = 0;
-const react = new vm.SyntheticModule(['default', 'useCallback', 'useEffect', 'useMemo', 'useState'], function () {
+const react = new vm.SyntheticModule(['default', 'useCallback', 'useEffect', 'useMemo', 'useState', 'useSyncExternalStore'], function () {
   this.setExport('default', reactDefault);
+  this.setExport('useSyncExternalStore', (_subscribe, get) => get());
   this.setExport('useCallback', (fn) => fn);
   this.setExport('useEffect', () => {});
   this.setExport('useMemo', (fn) => fn());
   this.setExport('useState', (initial) => {
-    const value = stateIndex < states.length ? states[stateIndex++] : (typeof initial === 'function' ? initial() : initial);
+    const index = stateIndex++;
+    const value = index < (tab === 'settings' ? 2 : states.length) ? states[index] : (typeof initial === 'function' ? initial() : initial);
     return [value, () => {}];
   });
 }, { context });
 const jsxFn = (type, props, key) => ({ type, props: props || {}, key });
 const runtime = new vm.SyntheticModule(['jsx', 'jsxs'], function () { this.setExport('jsx', jsxFn); this.setExport('jsxs', jsxFn); }, { context });
 const Button = (props) => jsxFn('button', { ...props, className: `preview-button ${props.className || ''}`.trim(), type: 'button' });
+const Codicon = ({ name, size }) => jsxFn('i', { className: `codicon codicon-${name}`, 'aria-hidden': true, style: { fontSize: size } });
 const StatusDot = ({ tone }) => jsxFn('span', { className: `preview-status-dot preview-${tone}`, 'aria-hidden': true });
-const sdk = new vm.SyntheticModule(['Button', 'ErrorState', 'GlyphSpinner', 'host', 'PALETTE_AREA', 'ROUTES_AREA', 'SIDEBAR_NAV_AREA', 'StatusDot'], function () {
+const sdk = new vm.SyntheticModule(['Button', 'Codicon', 'ErrorState', 'GlyphSpinner', 'host', 'PALETTE_AREA', 'ROUTES_AREA', 'SIDEBAR_NAV_AREA', 'StatusDot'], function () {
   this.setExport('Button', Button);
+  this.setExport('Codicon', Codicon);
   this.setExport('ErrorState', (props) => jsxFn('div', { children: props.description }));
   this.setExport('GlyphSpinner', () => jsxFn('span', { children: 'Loading' }));
   this.setExport('host', { navigate() {} });
@@ -107,25 +112,28 @@ function styleText(style) {
     return `${name}:${rendered}`;
   }).join(';');
 }
-function render(node) {
+function render(node, selected) {
   if (node == null || node === false || node === true) return '';
   if (typeof node === 'string' || typeof node === 'number') return escapeHtml(node);
-  if (Array.isArray(node)) return node.map(render).join('');
-  if (node.type === Fragment) return render(node.props.children);
-  if (typeof node.type === 'function') return render(node.type(node.props || {}));
+  if (Array.isArray(node)) return node.map((entry) => render(entry, selected)).join('');
+  if (node.type === Fragment) return render(node.props.children, selected);
+  if (typeof node.type === 'function') return render(node.type(node.props || {}), selected);
   const tag = node.type;
   const props = node.props || {};
   if (tag === 'style') return `<style>${props.children || ''}</style>`;
   const attrs = [];
   for (const [key, value] of Object.entries(props)) {
-    if (key === 'children' || key === 'className' || key === 'style' || key.startsWith('on') || value == null || value === false) continue;
+    if (key === 'children' || key === 'className' || key === 'style' || key.startsWith('on') || value == null || (value === false && !key.startsWith('aria-'))) continue;
     const name = key === 'htmlFor' ? 'for' : key === 'strokeWidth' ? 'stroke-width' : key;
     const rendered = value === true && key.startsWith('aria-') ? 'true' : value === true ? '' : value;
     attrs.push(`${name}="${escapeHtml(rendered)}"`);
   }
   if (props.className) attrs.push(`class="${escapeHtml(props.className)}"`);
+  if (tag === 'details' && showMaker && props.className === 'us-maker') attrs.push('open');
+  if (tag === 'option' && props.value === selected) attrs.push('selected');
   if (props.style) attrs.push(`style="${escapeHtml(styleText(props.style))}"`);
-  return `<${tag}${attrs.length ? ` ${attrs.join(' ')}` : ''}>${render(props.children)}</${tag}>`;
+  if (tag === 'input') return `<input${attrs.length ? ` ${attrs.join(' ')}` : ''}>`;
+  return `<${tag}${attrs.length ? ` ${attrs.join(' ')}` : ''}>${render(props.children, tag === 'select' ? props.value : selected)}</${tag}>`;
 }
 
 (async () => {
@@ -133,8 +141,13 @@ function render(node) {
   await module.link((specifier) => specifier === 'react' ? react : specifier === 'react/jsx-runtime' ? runtime : specifier === '@hermes/plugin-sdk' ? sdk : null);
   await module.evaluate();
   const registrations = [];
-  module.namespace.default.register({ rest: async () => ({}), registerMany: (items) => registrations.push(...items) });
-  const page = registrations.find((item) => item.id === 'page');
+  let settings;
+  module.namespace.default.register({
+    rest() { throw new Error('The screenshot fixture cannot make backend requests'); },
+    registerMany: (items) => registrations.push(...items),
+    registerSettingsPage: (page) => { settings = page; },
+  });
+  const page = tab === 'settings' ? settings : registrations.find((item) => item.id === 'page');
   const body = render(page.render());
   const shellCss = `<style>:root{--ui-base:#edf4ef;--ui-accent:#61d18b;--ui-success:#52c987;--ui-yellow:#f2b84b;--ui-red:#ef6471;--ui-text-primary:#f4f7f5;--ui-text-secondary:#9eaaa3;--ui-text-tertiary:#748078;--ui-stroke-secondary:#2b3530;--ui-stroke-tertiary:#222b27;--ui-bg-card:#121715;--ui-bg-secondary:#28302c;--ui-row-hover-background:#18201c;--ui-bg-editor:#0b0e0d;--dt-destructive:#ef6471}html,body{margin:0;height:100%;background:var(--ui-bg-editor);font:14px/1.45 ui-sans-serif,system-ui;color:var(--ui-text-primary)}button{font:inherit}.preview-button{border:1px solid var(--ui-stroke-secondary);border-radius:8px;background:var(--ui-bg-secondary);color:var(--ui-text-primary);padding:8px 12px;font-weight:700}.preview-status-dot{display:inline-block;width:.42rem;height:.42rem;border-radius:50%;background:var(--ui-text-secondary)}.preview-good{background:var(--ui-success)}.preview-warn{background:var(--ui-yellow)}.preview-bad{background:var(--ui-red)}</style>`;
   fs.mkdirSync(path.dirname(output), { recursive: true });

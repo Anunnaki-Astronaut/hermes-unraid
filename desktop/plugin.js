@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import {
   Button,
+  Codicon,
   ErrorState,
   GlyphSpinner,
   host,
@@ -12,10 +13,138 @@ import {
 } from '@hermes/plugin-sdk';
 
 const ROUTE = '/unraid';
+const SERVER_ICON = 'server';
+const SETTINGS_ROUTE = '/settings?tab=plugins&plugin=unraid';
+const AGENT_SETTINGS_ROUTE = '/settings?tab=plugins&agent=unraid';
+// Shared by the Dashboard and Settings; the UI tests check it against plugin.yaml.
+const PLUGIN_VERSION = '0.3.1';
 const APPEARANCE_KEY = 'unraid.appearance';
 const APPEARANCE_CHOICES = ['match', 'system', 'light', 'dark'];
-const APPEARANCE_LABELS = { match: 'Match desktop', system: 'System', light: 'Light', dark: 'Dark' };
+const APPEARANCE_LABELS = { match: 'Match Desktop', system: 'System', light: 'Light', dark: 'Dark' };
+// Match the four Kalends glyphs without changing Unraid's saved mode values.
+const APPEARANCE_ICONS = {
+  match: 'M3 4h18v13H3z M8 21h8 M12 17v4',
+  system: 'M12 3a9 9 0 1 0 0 18V3z M12 3a9 9 0 0 1 0 18',
+  light: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M12 1v3 M12 20v3 M1 12h3 M20 12h3 M4 4l2 2 M18 18l2 2 M4 20l2-2 M18 6l2-2',
+  dark: 'M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z',
+};
 let pluginContext = null;
+let paletteStore;
+
+const PALETTE_FIELDS = { background: 'Background', panel: 'Panels', text: 'Text', accent: 'Accent', selected: 'Selected row' };
+const PRESETS = {
+  Daybook: {
+    light: { background: '#F8FAF7', panel: '#EEF4EF', text: '#17302A', accent: '#27674E', selected: '#D5EBDD' },
+    dark: { background: '#111A19', panel: '#1A2725', text: '#F3F8F5', accent: '#A8EBC9', selected: '#304D3D' },
+  },
+  Dusk: {
+    light: { background: '#FCF6FA', panel: '#FFFFFF', text: '#37253F', accent: '#794526', selected: '#EEDDEC' },
+    dark: { background: '#1B1725', panel: '#2A2337', text: '#F5EAF7', accent: '#FFBC91', selected: '#483753' },
+  },
+  Coast: {
+    light: { background: '#F2FAFB', panel: '#FFFFFF', text: '#163B42', accent: '#166373', selected: '#D2EAF0' },
+    dark: { background: '#10252C', panel: '#193640', text: '#E5F7FA', accent: '#8AD9E6', selected: '#2C4D58' },
+  },
+  Marigold: {
+    light: { background: '#FFF9E4', panel: '#F6E7AE', text: '#352600', accent: '#725000', selected: '#F9DF82' },
+    dark: { background: '#211900', panel: '#342800', text: '#FFF0BE', accent: '#FFCD4E', selected: '#523D00' },
+  },
+  Cobalt: {
+    light: { background: '#F1F5FF', panel: '#E1E9FF', text: '#12234D', accent: '#234AC5', selected: '#CFDDFF' },
+    dark: { background: '#10182F', panel: '#1B2850', text: '#E8F0FF', accent: '#9FB4FF', selected: '#304787' },
+  },
+};
+const hexColor = (value) => typeof value === 'string' && /^[#][0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : null;
+const MODES = ['light', 'dark'];
+
+function contrast(a, b) {
+  const luminance = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((n) => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4)
+    .reduce((sum, n, i) => sum + n * [.2126, .7152, .0722][i], 0);
+  const x = luminance(a), y = luminance(b);
+  return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+}
+
+function inspectPalette(value) {
+  const palette = {}, errors = [];
+  for (const [key, label] of Object.entries(PALETTE_FIELDS)) {
+    palette[key] = hexColor(value?.[key]);
+    if (!palette[key]) errors.push(`${label}: enter #RRGGBB.`);
+  }
+  if (!errors.length) {
+    for (const ink of ['text', 'accent']) {
+      for (const surface of ['background', 'panel', 'selected']) {
+        // Selected rows use Text for all copy; Accent only draws markers and focus rings there.
+        const minimum = ink === 'accent' && surface === 'selected' ? 3 : 4.5;
+        if (contrast(palette[ink], palette[surface]) < minimum) {
+          errors.push(`${PALETTE_FIELDS[ink]} needs ${minimum}:1 against ${PALETTE_FIELDS[surface]}.`);
+        }
+      }
+    }
+  }
+  return { palette, errors };
+}
+
+const themeProfile = () => host.state?.profile?.get() || 'default';
+const subscribeThemeProfile = (listener) => host.state?.profile?.subscribe(listener) ?? (() => {});
+
+function createPaletteStore(storage) {
+  const current = new Map();
+  const listeners = new Set();
+  // SDK storage namespaces by plugin, not by profile. Keep separate, versioned
+  // keys for each active Desktop profile and mode; never touch the old mode key.
+  const keyOf = (profile, mode) => `unraid.palette.v1.${encodeURIComponent(profile)}.${mode}`;
+  const read = (key) => {
+    try {
+      const { palette, errors } = inspectPalette(storage?.get(key));
+      return errors.length ? null : palette;
+    } catch (_) { return null; }
+  };
+  const get = (profile) => {
+    if (!current.has(profile)) current.set(profile, Object.fromEntries(MODES.map((mode) => [mode, read(keyOf(profile, mode))])));
+    return current.get(profile);
+  };
+  return {
+    get,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    save(profile, mode, draft) {
+      if (profile !== themeProfile() || !MODES.includes(mode)) return false;
+      const { palette, errors } = inspectPalette(draft);
+      if (errors.length || typeof storage?.set !== 'function') return false;
+      try {
+        const key = keyOf(profile, mode);
+        storage.set(key, palette);
+        if (JSON.stringify(read(key)) !== JSON.stringify(palette)) return false;
+        current.set(profile, { ...get(profile), [mode]: palette });
+        listeners.forEach((listener) => listener());
+        return true;
+      } catch (_) { return false; }
+    },
+  };
+}
+
+function usePalettes() {
+  const profile = useSyncExternalStore(subscribeThemeProfile, themeProfile);
+  const palettes = useSyncExternalStore(paletteStore.subscribe, () => paletteStore.get(profile));
+  return { profile, palettes };
+}
+
+function themeStyle(palette) {
+  if (!palette) return undefined;
+  const { background, panel, text, accent, selected } = palette;
+  const divider = `color-mix(in srgb, ${text} 27%, ${background})`;
+  return {
+    '--ud-canvas': background, '--ud-surface': panel, '--ud-surface-2': selected,
+    '--ud-chrome': panel, '--ud-topbar': panel, '--ud-featured': panel, '--ud-featured-badge': selected,
+    '--ud-on-featured': text, '--ud-on-featured-2': text, '--ud-on-chrome': text, '--ud-on-chrome-muted': text, '--ud-on-chrome-faint': text,
+    '--ud-text': text, '--ud-text-2': text, '--ud-text-3': text, '--ud-divider': divider, '--ud-divider-soft': divider,
+    '--ud-accent': accent, '--ud-brand': accent, '--ud-focus': accent, '--ud-hover': selected,
+    '--ud-badge-bg': selected, '--ud-badge-text': text, '--ud-track': selected, '--ud-track-fill': accent,
+    '--ui-bg-card': panel, '--ui-bg-secondary': panel, '--ui-bg-tertiary': selected,
+    '--ui-text-primary': text, '--ui-text-secondary': text, '--ui-text-tertiary': text,
+    '--ui-stroke-secondary': divider, '--ui-stroke-tertiary': divider, '--ui-accent': accent,
+  };
+}
 
 /*
  * Harbor Dashboard candidate styling.
@@ -64,18 +193,17 @@ box-sizing:border-box;width:100%;min-height:100%;margin:0;display:flex;flex-dire
 .unraid-deck *{box-sizing:border-box}
 .ud-topbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.85rem 1.25rem;background:var(--ud-topbar);border-bottom:1px solid var(--ud-divider)}
 .ud-brand{display:flex;align-items:center;gap:.75rem;min-width:0}
-.ud-logo{width:2.6rem;height:2.6rem;flex:0 0 auto;display:grid;place-items:center;border-radius:.75rem;background:var(--ud-featured);color:var(--ud-on-featured);font-weight:800;font-size:1.15rem}
-.ud-titles{min-width:0}
-.ud-app-title{margin:0;font-size:1.35rem;line-height:1.2;font-weight:750;letter-spacing:-.02em}
-.ud-app-subtitle{margin:.1rem 0 0;color:var(--ud-text-2);font-size:.78rem}
+.ud-logo{width:2.6rem;height:2.6rem;flex:0 0 auto;display:grid;place-items:center;border-radius:.75rem;background:var(--ud-featured);color:var(--ud-on-featured)}
+.ud-brand-title{min-width:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:.15rem .625rem}
+.ud-app-title{min-width:0;margin:0;font-size:1.35rem;line-height:1.2;font-weight:750;letter-spacing:-.02em}
+.ud-app-version{color:var(--ud-text-2);font-size:.8125rem;white-space:nowrap}
 .ud-topbar-actions{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .ud-conn{display:inline-flex;align-items:center;gap:.4rem;font-size:.8rem;white-space:nowrap;color:var(--ud-text-2)}
 .ud-tone-good{color:var(--ud-good)}.ud-tone-warn{color:var(--ud-warn)}.ud-tone-bad{color:var(--ud-alert)}.ud-tone-muted{color:var(--ud-text-3)}
-.ud-appearance{display:inline-flex;border:1px solid var(--ud-divider);border-radius:999px;overflow:hidden}
-.ud-appearance-option{border:0;border-left:1px solid var(--ud-divider);background:transparent;color:var(--ud-text-2);padding:.3rem .6rem;cursor:pointer;font:inherit;font-size:.7rem;white-space:nowrap}
-.ud-appearance-option:first-child{border-left:0}
+.ud-appearance{display:inline-flex;flex-wrap:wrap;gap:5px;max-width:100%}
+.ud-appearance-option{display:grid;place-items:center;width:2rem;height:2rem;border:1px solid var(--ud-divider);border-radius:7px;background:transparent;color:var(--ud-text);padding:0;cursor:pointer}
 .ud-appearance-option:hover{background:var(--ud-hover);color:var(--ud-text)}
-.ud-appearance-option[aria-pressed="true"]{background:var(--ud-surface-2);color:var(--ud-text);font-weight:700}
+.ud-appearance-option[aria-pressed="true"]{background:var(--ud-surface-2);border-color:var(--ud-accent);color:var(--ud-text)}
 .ud-nav{display:flex;align-items:stretch;gap:1.5rem;padding:0 1.25rem;background:var(--ud-chrome);color:var(--ud-on-chrome-muted);overflow-x:auto;scrollbar-width:thin}
 .ud-tabs{display:flex;gap:.25rem}
 .ud-tab{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--ud-on-chrome-muted);padding:.85rem .55rem;white-space:nowrap;cursor:pointer;font:inherit;font-size:.9rem}
@@ -160,9 +288,9 @@ box-sizing:border-box;width:100%;min-height:100%;margin:0;display:flex;flex-dire
 .ud-safety{padding:.1rem 1.25rem .75rem;color:var(--ud-on-chrome-faint);font-size:.7rem;margin:0}
 .ud-tab:focus-visible,.ud-linkbtn:focus-visible,.ud-chip:focus-visible,.ud-appearance-option:focus-visible{outline:2px solid var(--ud-focus);outline-offset:2px}
 @container unraid-deck (max-width:64rem){.ud-grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}.ud-grid-3{grid-template-columns:1fr}.ud-grid-2{grid-template-columns:1fr}}
-@container unraid-deck (max-width:40rem){.ud-body{padding:1rem}.ud-topbar{padding:.75rem 1rem}.ud-nav{padding:0 1rem}.ud-nav-right{display:none}.ud-grid-4{grid-template-columns:1fr}.ud-app-subtitle{display:none}.ud-table-head,.ud-table-row{grid-template-columns:minmax(0,1fr) auto auto}.ud-table-head>*:nth-child(2),.ud-table-row>*:nth-child(2){display:none}.ud-detail-row{grid-template-columns:minmax(0,1fr) auto}.ud-utility-row>*:nth-child(2){display:none}.ud-statusbar{justify-content:flex-start;gap:.35rem}}
+@container unraid-deck (max-width:40rem){.ud-body{padding:1rem}.ud-topbar{padding:.75rem 1rem}.ud-nav{padding:0 1rem}.ud-nav-right{display:none}.ud-grid-4{grid-template-columns:1fr}.ud-table-head,.ud-table-row{grid-template-columns:minmax(0,1fr) auto auto}.ud-table-head>*:nth-child(2),.ud-table-row>*:nth-child(2){display:none}.ud-detail-row{grid-template-columns:minmax(0,1fr) auto}.ud-utility-row>*:nth-child(2){display:none}.ud-statusbar{justify-content:flex-start;gap:.35rem}}
 @media(max-width:64rem){.ud-grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}.ud-grid-3{grid-template-columns:1fr}.ud-grid-2{grid-template-columns:1fr}}
-@media(max-width:40rem){.ud-body{padding:1rem}.ud-topbar{padding:.75rem 1rem}.ud-nav{padding:0 1rem}.ud-nav-right{display:none}.ud-grid-4{grid-template-columns:1fr}.ud-app-subtitle{display:none}.ud-table-head,.ud-table-row{grid-template-columns:minmax(0,1fr) auto auto}.ud-table-head>*:nth-child(2),.ud-table-row>*:nth-child(2){display:none}.ud-detail-row{grid-template-columns:minmax(0,1fr) auto}.ud-utility-row>*:nth-child(2){display:none}.ud-statusbar{justify-content:flex-start;gap:.35rem}}
+@media(max-width:40rem){.ud-body{padding:1rem}.ud-topbar{padding:.75rem 1rem}.ud-nav{padding:0 1rem}.ud-nav-right{display:none}.ud-grid-4{grid-template-columns:1fr}.ud-table-head,.ud-table-row{grid-template-columns:minmax(0,1fr) auto auto}.ud-table-head>*:nth-child(2),.ud-table-row>*:nth-child(2){display:none}.ud-detail-row{grid-template-columns:minmax(0,1fr) auto}.ud-utility-row>*:nth-child(2){display:none}.ud-statusbar{justify-content:flex-start;gap:.35rem}}
 `;
 
 const SAFE_ERRORS = Object.freeze({
@@ -467,19 +595,265 @@ function ProgressBar({ value, label }) {
   });
 }
 
+const SETTINGS_BUTTON_CSS = `
+.unraid-deck .ud-settings-button{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;min-height:2.125rem;padding:.35rem .65rem;border:1px solid var(--ud-divider);border-radius:.375rem;background:var(--ud-surface);color:var(--ud-text);font:inherit;font-weight:650;cursor:pointer}
+.unraid-deck .ud-settings-button:hover{background:var(--ud-surface-2)}
+.unraid-deck .ud-settings-button:focus-visible{outline:2px solid var(--ud-focus);outline-offset:2px}
+.unraid-deck .ud-settings-button svg{flex:none}
+.unraid-deck .us-gear{width:2.5rem;height:2.5rem;padding:0}
+`;
+
+const THEME_MAKER_CSS = `
+.unraid-settings .us-palette-row{position:relative}
+.unraid-settings .us-palette-row h3{font-size:.9375rem}
+.unraid-settings .us-maker{margin-top:.75rem;min-width:0}
+.unraid-settings .us-maker summary{width:max-content;max-width:100%;margin-bottom:0}
+.unraid-settings .us-maker summary::after{content:'';width:.45rem;height:.45rem;margin-inline:.4rem .15rem;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-2px) rotate(45deg)}
+.unraid-settings .us-maker[open] summary::after{transform:translateY(2px) rotate(225deg)}
+.unraid-settings .us-editor{margin-top:.65rem;padding:clamp(.75rem,2cqi,1.3rem);border:1px solid var(--ud-divider);border-radius:.5rem;background:var(--ud-surface);min-width:0}
+.unraid-settings .us-editor-top,.unraid-settings .us-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:.65rem 1rem;flex-wrap:wrap}
+.unraid-settings .us-editor-top h3{font-size:1.25rem;letter-spacing:-.02em}
+.unraid-settings .us-editor-mode{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;color:var(--ud-text-2)}
+.unraid-settings .us-editor :is(input,select){min-width:0;max-width:100%;min-height:2rem;font:inherit;color:var(--ud-text);background:var(--ud-canvas);border:1px solid var(--ud-divider);border-radius:.35rem}
+.unraid-settings .us-editor :is(input,select):focus-visible{outline:2px solid var(--ud-focus);outline-offset:2px}
+.unraid-settings .us-editor select{padding:.18rem .55rem;background:var(--ud-surface)}
+.unraid-settings .us-editor input[aria-invalid=true]{border-color:var(--ud-alert)}
+.unraid-settings .us-editor-grid{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,5fr);gap:1.25rem clamp(1rem,4cqi,3.3rem);margin-top:.7rem}
+.unraid-settings .us-editor-grid>*{min-width:0}
+.unraid-settings .us-presets{display:flex;flex-wrap:wrap;gap:.45rem;margin:.35rem 0 .9rem}
+.unraid-settings .us-presets button{font-weight:500;flex:1 1 auto;justify-content:flex-start}
+.unraid-settings .us-presets button[aria-pressed=true]{border-color:var(--ud-accent);background:var(--ud-surface-2);font-weight:700}
+.unraid-settings .us-swatch-dots{display:flex;padding-inline-start:.1rem}
+.unraid-settings .us-swatch-dots span{width:.7rem;height:.7rem;border-radius:50%;border:1px solid var(--ud-divider)}
+.unraid-settings .us-field{display:grid;grid-template-columns:minmax(0,1fr) 2.1rem minmax(4.6rem,1fr);gap:.45rem;align-items:center;margin-top:.45rem}
+.unraid-settings .us-field input[type=color]{width:100%;padding:.18rem}
+.unraid-settings .us-field input[type=text]{width:100%;padding:.2rem .55rem;font-variant-numeric:tabular-nums}
+.unraid-settings .us-storage-preview{background:var(--ud-canvas);color:var(--ud-text);border:1px solid var(--ud-divider);border-radius:.45rem;padding:.8rem;margin:.3rem 0 .6rem;font-size:.8125rem}
+.unraid-settings .us-sample-line{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem .8rem;flex-wrap:wrap}
+.unraid-settings .us-sample-top{font-size:.7rem;margin-bottom:.38rem}
+.unraid-settings .us-sample-capacity{background:var(--ud-surface);border-radius:.3rem;padding:.6rem .7rem;margin-bottom:.55rem}
+.unraid-settings .us-sample-capacity strong{display:block;font-size:1.4rem;letter-spacing:-.03em}
+.unraid-settings .us-sample-track{height:.3rem;border-radius:999px;background:var(--ud-surface-2);margin-top:.32rem;overflow:hidden}
+.unraid-settings .us-sample-track span{display:block;width:47.5%;height:100%;background:var(--ud-accent)}
+.unraid-settings .us-sample-line-row{padding:.25rem .6rem}
+.unraid-settings .us-sample-selected{background:var(--ud-surface-2);border-left:1px solid var(--ud-accent);border-radius:0 .25rem .25rem 0;font-weight:650}
+.unraid-settings .us-sample-status{display:inline-flex;align-items:center;gap:.3rem}
+.unraid-settings .us-sample-readonly{font-size:.7rem;margin:.35rem 0 0 .6rem}
+.unraid-settings .us-check{font-size:.8125rem}
+.unraid-settings .us-check ul{margin:.35rem 0;padding-left:1.2rem}
+.unraid-settings .us-editor-actions{margin-top:.85rem;padding-top:.75rem;border-top:1px solid var(--ud-divider)}
+.unraid-settings .us-editor-actions p{font-size:.78rem}
+.unraid-settings .us-editor-actions div{display:flex;flex-wrap:wrap;gap:.45rem}
+.unraid-settings .us-editor .us-apply{background:var(--ud-accent);color:var(--ud-canvas, var(--ud-surface));border-color:var(--ud-accent)}
+.unraid-settings[data-appearance=match] .us-editor .us-apply{color:var(--ui-bg-editor);background:var(--ui-accent)}
+.unraid-settings .us-editor button:disabled{opacity:.55;cursor:not-allowed}
+.unraid-settings .us-result{margin-top:.55rem}
+@container unraid-deck (min-width:41rem){
+  .unraid-settings .us-palette-row>div:first-child{padding-inline-end:10rem}
+  .unraid-settings .us-maker summary{position:absolute;inset-block-start:1.1rem;inset-inline-end:0}
+}
+@container unraid-deck (max-width:40rem){
+  .unraid-settings .us-editor-grid{grid-template-columns:minmax(0,1fr)}
+}
+`;
+
+const CUSTOM_STATUS_CSS = `
+/* Keep semantic markers, but use verified foreground ink for their labels on
+   user-selected surfaces. This does not alter the original status tokens. */
+.unraid-deck[data-custom-palette=true] :is(.ud-tone-good,.ud-tone-warn,.ud-tone-bad,.ud-pair-alert .ud-pair-value,.ud-pair-warn .ud-pair-value,.ud-list-state,.ud-pill){color:var(--ud-text)!important}
+.unraid-deck[data-custom-palette=true] .ud-pill{background:var(--ud-surface-2);border-inline-start:1px solid var(--tone)}
+`;
+
+const SETTINGS_CSS = `
+.unraid-settings{overflow-x:visible}
+.unraid-settings .us-content{width:100%;max-width:68.75rem;margin-inline:auto;padding:1.5rem clamp(1rem,5cqi,3.5rem) 2.5rem}
+.unraid-settings h1,.unraid-settings h2,.unraid-settings h3,.unraid-settings p{margin:0}
+.unraid-settings .us-brand{display:flex;align-items:baseline;gap:1.15rem;padding-bottom:1.1rem;font-size:.8125rem}
+.unraid-settings .us-brand strong{color:var(--ud-accent);text-transform:uppercase}
+.unraid-settings .us-brand span,.unraid-settings p{color:var(--ud-text-2)}
+.unraid-settings .us-section{border-top:1px solid var(--ud-divider);padding-block:1.15rem 1.35rem}
+.unraid-settings .us-heading{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.75rem 1.25rem}
+.unraid-settings .us-heading>div{min-width:0}
+.unraid-settings h1{font-size:2.125rem;line-height:1.16;letter-spacing:-.025em}
+.unraid-settings h2{font-size:1.3125rem;line-height:1.25;letter-spacing:-.015em}
+.unraid-settings h3{font-size:.875rem}
+.unraid-settings h1+p,.unraid-settings h2+p,.unraid-settings h3+p{margin-top:.25rem}
+.unraid-settings .us-intro p{font-size:.9375rem}
+.unraid-settings .us-connections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem 2.25rem;max-width:39.25rem;margin-top:.9rem}
+.unraid-settings .us-connection{min-width:0;border-top:1px solid var(--ud-divider);padding-top:.625rem}
+
+@container unraid-deck (max-width:35rem){
+  .unraid-settings .us-connections{grid-template-columns:minmax(0,1fr)}
+  .unraid-settings .us-heading{flex-direction:column}
+}
+`;
+
+function SettingsGear() {
+  return jsx('button', {
+    type: 'button', className: 'ud-settings-button us-gear', 'aria-label': 'Unraid Settings',
+    title: 'Unraid Settings', onClick: () => host.navigate(SETTINGS_ROUTE),
+    children: jsx(Codicon, { name: 'settings-gear', size: '1.125rem' }),
+  });
+}
+
 function AppearanceControl({ choice, onChange }) {
   return jsx('div', {
     className: 'ud-appearance',
     role: 'group',
-    'aria-label': 'Appearance',
+    'aria-label': 'Appearance mode',
     children: APPEARANCE_CHOICES.map((name) => jsx('button', {
       type: 'button',
       className: 'ud-appearance-option',
       'aria-pressed': choice === name,
-      title: `Appearance: ${APPEARANCE_LABELS[name]}`,
+      'aria-label': APPEARANCE_LABELS[name],
+      title: APPEARANCE_LABELS[name],
       onClick: () => onChange(name),
-      children: APPEARANCE_LABELS[name],
+      children: jsx('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+        strokeWidth: 1.6, 'aria-hidden': true, focusable: 'false', children: jsx('path', { d: APPEARANCE_ICONS[name] }) }),
     }, name)),
+  });
+}
+
+function StorageSample({ palette, mode }) {
+  return jsxs('div', {
+    className: 'us-storage-preview', style: themeStyle(palette), 'data-appearance': mode,
+    children: [
+      jsxs('div', { className: 'us-sample-line us-sample-top', children: [jsx('strong', { children: 'OVERVIEW' }), jsx('span', { children: 'Sample data' })] }),
+      jsxs('div', { className: 'us-sample-capacity', children: [
+        'Array capacity', jsx('strong', { children: '38 of 80 TB' }),
+        jsx('div', { className: 'us-sample-track', 'aria-hidden': true, children: jsx('span', {}) }),
+      ] }),
+      jsxs('div', { className: 'us-sample-line us-sample-line-row us-sample-selected', children: [
+        'Main array', jsxs('span', { className: 'us-sample-status', children: [jsx(StatusDot, { tone: 'good' }), 'Healthy'] }),
+      ] }),
+      jsxs('div', { className: 'us-sample-line us-sample-line-row', children: [jsx('span', { children: 'Docker' }), jsx('span', { children: '8 running' })] }),
+      jsx('div', { className: 'us-sample-readonly', children: 'Read-only' }),
+    ],
+  });
+}
+
+function ThemeMaker({ profile, palettes, resolved }) {
+  const [editMode, setMode] = useState(null);
+  const mode = editMode ?? (resolved === 'dark' ? 'dark' : 'light');
+  const [drafts, setDrafts] = useState(() => Object.fromEntries(MODES.map((name) => [name, palettes[name] ?? PRESETS.Daybook[name]])));
+  const [bases, setBases] = useState(() => Object.fromEntries(MODES.map((name) => [name,
+    Object.keys(PRESETS).find((preset) => JSON.stringify(PRESETS[preset][name]) === JSON.stringify(palettes[name])) ?? 'Daybook',
+  ])));
+  const [messages, setMessages] = useState({});
+  const label = mode === 'dark' ? 'Dark' : 'Light';
+  const draft = drafts[mode];
+  const { palette, errors } = inspectPalette(draft);
+  const preview = errors.length ? (palettes[mode] ?? PRESETS.Daybook[mode]) : palette;
+  const replace = (next) => {
+    setDrafts((current) => ({ ...current, [mode]: next }));
+    setMessages((current) => ({ ...current, [mode]: '' }));
+  };
+  const change = (field, value) => {
+    setDrafts((current) => ({ ...current, [mode]: { ...current[mode], [field]: value } }));
+    setMessages((current) => ({ ...current, [mode]: '' }));
+  };
+  const apply = () => {
+    if (errors.length) return;
+    const ok = paletteStore.save(profile, mode, draft);
+    setMessages((current) => ({ ...current, [mode]: ok ? `${label} palette saved for Unraid.${resolved === mode ? '' : ' Your appearance mode has not changed.'}` : 'Palette was not saved. Local storage may be unavailable.' }));
+  };
+  return jsxs('section', { className: 'us-section us-palette-row', children: [
+    jsxs('div', { children: [jsx('h3', { children: 'Color palette' }), jsx('p', { children: 'Pick a preset or make a palette just for the Unraid plugin.' })] }),
+    jsxs('details', { className: 'us-maker', children: [
+      jsx('summary', { className: 'ud-settings-button', children: 'Theme Maker' }),
+      jsxs('div', { className: 'us-editor', children: [
+        jsxs('header', { className: 'us-editor-top', children: [
+          jsx('h3', { children: 'Theme Maker' }),
+          jsxs('label', { className: 'us-editor-mode', children: ['Editing palette for', jsxs('select', {
+            'aria-label': 'Edit palette', value: mode,
+            onChange: (event) => { if (MODES.includes(event.target.value)) setMode(event.target.value); },
+            children: [jsx('option', { value: 'light', children: 'Light appearance' }), jsx('option', { value: 'dark', children: 'Dark appearance' })],
+          })] }),
+        ] }),
+        jsxs('div', { className: 'us-editor-grid', children: [
+          jsxs('div', { children: [
+            jsx('h3', { children: 'Start from a preset' }),
+            jsx('div', { className: 'us-presets', role: 'group', 'aria-label': 'Palette presets', children: Object.entries(PRESETS).map(([name, pair]) => {
+              const preset = pair[mode];
+              return jsxs('button', {
+                type: 'button', className: 'ud-settings-button', 'aria-label': name,
+                'aria-pressed': !errors.length && JSON.stringify(palette) === JSON.stringify(preset),
+                onClick: () => { setBases((current) => ({ ...current, [mode]: name })); replace(preset); },
+                children: [jsx('span', { className: 'us-swatch-dots', 'aria-hidden': true, children: ['panel', 'accent', 'selected'].map((key) => jsx('span', { style: { background: preset[key] } }, key)) }), name],
+              }, name);
+            }) }),
+            ...Object.entries(PALETTE_FIELDS).map(([key, name]) => jsxs('div', { className: 'us-field', children: [
+              jsx('span', { children: name }),
+              jsx('input', { type: 'color', 'aria-label': `${label} ${name} swatch`, value: (hexColor(draft[key]) ?? preview[key]).toLowerCase(), onChange: (event) => change(key, event.target.value.toUpperCase()) }),
+              jsx('input', { type: 'text', 'aria-label': `${label} ${name} hex`, 'aria-invalid': !hexColor(draft[key]), value: draft[key], maxLength: 7, spellCheck: false, autoComplete: 'off', onChange: (event) => change(key, event.target.value) }),
+            ] }, key)),
+          ] }),
+          jsxs('section', { 'aria-label': 'Fictional storage preview', children: [
+            jsx('h3', { children: 'Storage preview' }), jsx(StorageSample, { palette: preview, mode }),
+            jsxs('div', { className: 'us-check', 'aria-live': 'polite', children: errors.length ? [
+              jsx('strong', { children: 'Not ready to apply. Preview uses the saved palette or Daybook.' }),
+              jsx('ul', { children: errors.map((error) => jsx('li', { children: error }, error)) }),
+            ] : [jsx('strong', { children: 'Preview text passes contrast checks' }), jsx('p', { children: 'Status colors stay the same.' })] }),
+          ] }),
+        ] }),
+        jsxs('div', { className: 'us-editor-actions', children: [
+          jsx('p', { children: 'Applies colors only for this Desktop profile. Connection settings stay unchanged.' }),
+          jsxs('div', { children: [
+            jsx('button', { type: 'button', className: 'ud-settings-button', onClick: () => replace(PRESETS[bases[mode]][mode]), children: 'Reset to preset' }),
+            jsx('button', { type: 'button', className: 'ud-settings-button us-apply', disabled: errors.length > 0, onClick: apply, children: `Apply to ${label}` }),
+          ] }),
+        ] }),
+        jsx('div', { className: 'us-result', role: 'status', children: messages[mode] || null }),
+      ] }),
+    ] }),
+  ] });
+}
+
+function UnraidSettingsPage() {
+  const { choice, resolved, choose } = useAppearance();
+  const { profile, palettes } = usePalettes();
+  const custom = palettes[resolved];
+  return jsxs('section', {
+    className: 'unraid-deck unraid-settings', 'data-appearance': resolved, 'aria-label': 'Unraid Settings',
+    'data-custom-palette': custom ? 'true' : undefined, style: themeStyle(custom),
+    children: [
+      jsx('style', { children: DECK_CSS + SETTINGS_BUTTON_CSS + SETTINGS_CSS + THEME_MAKER_CSS + CUSTOM_STATUS_CSS }),
+      jsxs('div', {
+        className: 'us-content', children: [
+          jsxs('div', { className: 'us-brand', children: [jsx('strong', { children: 'Unraid' }), jsx('span', { children: `v${PLUGIN_VERSION}` })] }),
+          jsxs('header', {
+            className: 'us-section us-heading us-intro', children: [
+              jsxs('div', { children: [jsx('h1', { children: 'Settings' }), jsx('p', { children: 'Set up read-only monitoring and personalize the dashboard.' })] }),
+              jsx('button', { type: 'button', className: 'ud-settings-button', 'aria-label': 'Back to Unraid dashboard', onClick: () => host.navigate(ROUTE), children: '‹ Dashboard' }),
+            ],
+          }),
+          jsxs('section', {
+            className: 'us-section', children: [
+              jsxs('div', {
+                className: 'us-heading', children: [
+                  jsxs('div', { children: [jsx('h2', { children: 'Connections' }), jsx('p', { children: 'Edit connection details and API keys in Agent settings for the selected profile.' })] }),
+                  // No profile parameter: keep the scope already selected in Hermes Settings.
+                  jsx('button', { type: 'button', className: 'ud-settings-button', onClick: () => host.navigate(AGENT_SETTINGS_ROUTE), children: 'Open Agent settings' }),
+                ],
+              }),
+              jsxs('div', {
+                className: 'us-connections', children: [
+                  jsxs('div', { className: 'us-connection', children: [jsx('h3', { children: 'Unraid server' }), jsx('p', { children: 'Use the /graphql endpoint and a dedicated read-only Viewer API key.' })] }),
+                  jsxs('div', { className: 'us-connection', children: [jsx('h3', { children: 'Transport' }), jsx('p', { children: 'Use HTTPS by default. Plain HTTP is off by default; enable it only on a trusted private LAN when HTTPS is unavailable.' })] }),
+                ],
+              }),
+            ],
+          }),
+          jsxs('section', {
+            className: 'us-section us-heading', children: [
+              jsxs('div', { children: [jsx('h2', { children: 'Appearance' }), jsx('p', { children: 'Match Desktop uses the Hermes Desktop theme. System follows your device.' })] }),
+              jsx(AppearanceControl, { choice, onChange: choose }),
+            ],
+          }),
+          jsx(ThemeMaker, { profile, palettes, resolved }, profile),
+        ],
+      }),
+    ],
   });
 }
 
@@ -983,6 +1357,8 @@ function AlertView({ groups, summary }) {
 
 function UnraidPage() {
   const { choice, resolved, choose } = useAppearance();
+  const { palettes } = usePalettes();
+  const custom = palettes[resolved];
   const health = useEndpoint('/health', true, 30000);
   const configured = Boolean(health.data?.configured);
   const overview = useEndpoint('/overview', configured, 15000);
@@ -1029,22 +1405,21 @@ function UnraidPage() {
   return jsxs('main', {
     className: 'unraid-deck',
     'data-appearance': resolved,
+    'data-custom-palette': custom ? 'true' : undefined,
+    style: themeStyle(custom),
     children: [
-      jsx('style', { children: DECK_CSS }),
+      jsx('style', { children: DECK_CSS + SETTINGS_BUTTON_CSS + (custom ? CUSTOM_STATUS_CSS : '') }),
       jsxs('header', {
         className: 'ud-topbar',
         children: [
           jsxs('div', {
             className: 'ud-brand',
             children: [
-              jsx('span', { className: 'ud-logo', 'aria-hidden': true, children: 'H' }),
-              jsxs('div', {
-                className: 'ud-titles',
-                children: [
-                  jsx('h1', { className: 'ud-app-title', children: 'Hermes for Unraid' }),
-                  jsx('p', { className: 'ud-app-subtitle', children: 'Read-only server monitoring' }),
-                ],
-              }),
+              jsx('span', { className: 'ud-logo', 'aria-hidden': true, children: jsx(Codicon, { name: SERVER_ICON, size: '1.25rem' }) }),
+              jsxs('div', { className: 'ud-brand-title', children: [
+                jsx('h1', { className: 'ud-app-title', children: 'Hermes for Unraid' }),
+                jsx('span', { className: 'ud-app-version', children: `v${PLUGIN_VERSION}` }),
+              ] }),
             ],
           }),
           jsxs('div', {
@@ -1058,6 +1433,7 @@ function UnraidPage() {
               }),
               jsx(AppearanceControl, { choice, onChange: choose }),
               jsx(Button, { onClick: refreshAll, disabled: refreshing, style: { minHeight: 40 }, children: refreshing ? 'Refreshing…' : 'Refresh' }),
+              typeof pluginContext?.registerSettingsPage === 'function' ? jsx(SettingsGear, {}) : null,
             ],
           }),
         ],
@@ -1092,7 +1468,9 @@ function UnraidPage() {
             className: 'ud-notice',
             children: [
               jsx('strong', { children: 'Connect a read-only Unraid API key' }),
-              jsx('p', { children: health.data?.message || 'Open Settings → Plugins → Unraid to enter the server URL and API key.' }),
+              jsx('p', { children: health.data?.message || (typeof pluginContext?.registerSettingsPage === 'function'
+                ? 'Open Unraid Settings, then Agent settings, to enter the server URL and API key.'
+                : 'Open Settings → Plugins → Unraid to enter the server URL and API key.') }),
               jsx('p', { children: 'Use the masked API-key field, retain any custom WebGUI port in the /graphql URL, save, then return here and press Refresh.' }),
               jsx('p', { children: 'The API key is stored by the Hermes backend and is never returned to this page.' }),
             ],
@@ -1148,14 +1526,16 @@ export default {
   defaultEnabled: false,
   register(ctx) {
     pluginContext = ctx;
+    paletteStore = createPaletteStore(ctx.storage);
     ctx.registerMany([
       { id: 'page', area: ROUTES_AREA, data: { path: ROUTE }, render: () => jsx(UnraidPage, {}) },
-      { id: 'nav', area: SIDEBAR_NAV_AREA, data: { path: ROUTE, label: 'Unraid', codicon: 'server' } },
+      { id: 'nav', area: SIDEBAR_NAV_AREA, data: { path: ROUTE, label: 'Unraid', codicon: SERVER_ICON } },
       {
         id: 'open',
         area: PALETTE_AREA,
         data: { id: 'unraid.open', label: 'Open Unraid', keywords: ['server', 'nas', 'docker'], run: () => host.navigate(ROUTE) },
       },
     ]);
+    ctx.registerSettingsPage?.({ id: 'settings', title: 'Unraid', icon: 'server', render: () => jsx(UnraidSettingsPage, {}) });
   },
 };

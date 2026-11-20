@@ -19,6 +19,9 @@ dist/
 /graphify-out/
 /.graphifyignore
 /AGENTS.md
+/HANDOFF.md
+/NOTES.local.md
+/.release-local/
 
 # Local artifacts and editor files
 /release/

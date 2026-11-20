@@ -18,11 +18,15 @@ A read-only Unraid monitor for Hermes Desktop. It puts array capacity, Docker co
 
 Appearance can match Hermes Desktop (the default), follow your system setting, or stay Light or Dark. The cards rearrange as the plugin pane gets narrower.
 
+Open the dashboard gear to customize Unraid in **Settings → Plugins → Unraid**. **Theme Maker** offers Daybook, Dusk, Coast, Marigold, and Cobalt, with a fictional storage preview and contrast checks. Apply saves the selected Light or Dark palette for your current Desktop profile. To see a saved palette, choose its Light or Dark appearance (or use System to follow your OS). Match Desktop always uses the host theme. Nothing here changes the rest of Hermes or your connection settings.
+
 The plugin is monitoring-only. It does not use SSH, MCP, shell commands, Unraid Connect, or GraphQL mutations.
 
 ## Screenshots
 
 All screenshots use made-up data. They do not show a real server.
+
+![Unraid Settings with Theme Maker open](docs/screenshots/settings.png)
 
 | Array and pools | Docker |
 | --- | --- |
@@ -39,7 +43,7 @@ All screenshots use made-up data. They do not show a real server.
 - Network access from the Hermes backend to the Unraid WebGUI
 - A dedicated Unraid API key with the `VIEWER` role
 
-The current release was manually tested with Unraid 7.3. Older releases may expose a different GraphQL schema.
+The monitor has previously been tested with Unraid 7.3; the 0.3.1 Desktop changes were verified offline with synthetic data. GraphQL fields can vary across Unraid releases.
 
 ## Install
 
@@ -102,7 +106,7 @@ Keep the port if the WebGUI uses a custom one. For example, a WebGUI at `http://
 
 ### 3. Configure the plugin
 
-1. In Hermes Desktop, open **Settings → Plugins → Unraid**.
+1. In Hermes Desktop, open **Settings → Plugins → Unraid → Agent settings**. The dashboard gear takes you to the Unraid page, where **Open Agent settings** opens the secure form.
 2. Enter the full GraphQL URL.
 3. Paste the `VIEWER` API key into the masked API-key field.
 4. Leave **Allow plain HTTP on a trusted LAN** off when using HTTPS.
@@ -115,7 +119,7 @@ HTTPS certificate verification is always enabled and cannot be bypassed. Fix the
 
 ### `Not configured`
 
-The selected Hermes backend profile is missing the GraphQL URL or API key. Open **Settings → Plugins → Unraid** while that backend/profile is selected and save both values.
+The selected Hermes backend profile is missing the GraphQL URL or API key. Open **Settings → Plugins → Unraid → Agent settings** while that backend/profile is selected and save both values.
 
 ### `Plugin not found`
 
@@ -187,7 +191,7 @@ node --experimental-vm-modules scripts/render_screenshot.cjs overview .screensho
 
 ## Project status
 
-Version 0.3.1 clarifies in Settings that Unraid is a live read-only Desktop monitor, not an analyzer or repair tool. This release changes no features or permissions; its HTTP User-Agent version also changes. Any future repair or control feature needs a separate design and security review.
+Version 0.3.1 adds native Settings, Theme Maker, and a dashboard header that shares its version label with Settings. The monitor remains read-only, with the same queries and permissions. See [the changelog](CHANGELOG.md) for details.
 
 ## License
 
