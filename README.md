@@ -1,10 +1,12 @@
-# Hermes Unraid
+# Hermes for Unraid®
+
+![Hermes for Unraid® banner — an Anunnaki keeper beside an illuminated server rack](docs/media/hermes-for-unraid.jpg)
+
+**Unofficial integration.** Unraid® is a registered trademark of Lime Technology, Inc. This application is not affiliated with, endorsed, or sponsored by Lime Technology, Inc.
 
 A read-only Unraid monitor for Hermes Desktop. It puts array capacity, Docker containers, virtual machines, and important notifications in one place without giving Hermes control of the server.
 
 [Install in Hermes](hermes://plugin/install?repo=Anunnaki-Astronaut/hermes-unraid&enable=1)
-
-![Overview](docs/screenshots/overview.png)
 
 ## What it shows
 
@@ -25,6 +27,8 @@ The plugin is monitoring-only. It does not use SSH, MCP, shell commands, Unraid 
 ## Screenshots
 
 All screenshots use made-up data. They do not show a real server.
+
+![Overview](docs/screenshots/overview.png)
 
 ![Unraid Settings with Theme Maker open](docs/screenshots/settings.png)
 
@@ -196,5 +200,3 @@ Version 0.3.2 hardens the opt-in LAN HTTP mode: it requires a direct connection 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-Unraid is a trademark of Lime Technology, Inc. This project is an independent community integration and is not affiliated with or endorsed by Lime Technology.
