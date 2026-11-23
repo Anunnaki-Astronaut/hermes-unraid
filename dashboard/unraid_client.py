@@ -10,7 +10,7 @@ from http.client import HTTPConnection
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import HTTPHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
+from urllib.request import HTTPHandler, HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 
 class UnraidConfigurationError(ValueError):
@@ -157,6 +157,11 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def _open_https(request: Request, *, timeout: float, context: ssl.SSLContext):
+    # Never forward the VIEWER key through redirects. TLS still uses the system trust store.
+    return build_opener(HTTPSHandler(context=context), _NoRedirect()).open(request, timeout=timeout)
+
+
 def endpoint_summary(config: UnraidConfig) -> dict[str, Any]:
     parsed = urlsplit(config.endpoint)
     return {
@@ -248,6 +253,16 @@ query HermesUnraidCapabilities {
   info { versions { core { unraid api } } }
 }
 """,
+    "hardware": """
+query HermesUnraidHardware {
+  info {
+    os { hostname }
+    baseboard { manufacturer model memMax }
+    cpu { manufacturer vendor brand cores threads speed }
+    memory { layout { size type } }
+  }
+}
+""",
 }
 
 
@@ -264,7 +279,7 @@ def execute_query(name: str, config: UnraidConfig | None = None) -> dict[str, An
             "Content-Type": "application/json",
             "Accept": "application/json",
             "x-api-key": cfg.api_key,
-            "User-Agent": "Hermes-Unraid/0.3.2",
+            "User-Agent": "Hermes-Unraid/0.4.0",
         },
     )
     try:
@@ -272,7 +287,7 @@ def execute_query(name: str, config: UnraidConfig | None = None) -> dict[str, An
             opener = build_opener(ProxyHandler({}), _LanHTTPHandler(), _NoRedirect())
             response = opener.open(request, timeout=cfg.timeout_seconds)
         else:
-            response = urlopen(request, timeout=cfg.timeout_seconds, context=ssl.create_default_context())
+            response = _open_https(request, timeout=cfg.timeout_seconds, context=ssl.create_default_context())
         with response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:

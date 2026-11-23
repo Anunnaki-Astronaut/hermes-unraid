@@ -19,7 +19,7 @@ def test_description_identifies_live_desktop_monitor_not_diagnostics():
 
 
 def test_manifest_and_runtime_versions_match_release(monkeypatch):
-    version = "0.3.2"
+    version = "0.4.0"
     plugin = yaml.safe_load((ROOT / "plugin.yaml").read_text())
     dashboard = json.loads((ROOT / "dashboard" / "manifest.json").read_text())
     spec = importlib.util.spec_from_file_location("unraid_plugin_api_manifest_tested", ROOT / "dashboard" / "plugin_api.py")
@@ -42,7 +42,7 @@ def test_manifest_and_runtime_versions_match_release(monkeypatch):
         assert request.get_header("User-agent") == f"Hermes-Unraid/{version}"
         raise OSError("request captured")
 
-    monkeypatch.setattr(api._client, "urlopen", capture_request)
+    monkeypatch.setattr(api._client, "_open_https", capture_request)
     try:
         api._client.execute_query(
             "overview",

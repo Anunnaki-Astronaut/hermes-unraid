@@ -10,8 +10,8 @@ A read-only Unraid monitor for Hermes Desktop. It puts array capacity, Docker co
 
 ## What it shows
 
-- Server and Unraid version
-- CPU and memory use
+- Server name and full Unraid version, separate from the plugin version
+- Motherboard and processor details, CPU load, and memory use when the API reports them
 - Array capacity, parity-check state, storage temperatures, and reported errors
 - An asleep indicator when Unraid explicitly reports a drive spun down and no temperature is available
 - Running and stopped Docker containers
@@ -20,7 +20,7 @@ A read-only Unraid monitor for Hermes Desktop. It puts array capacity, Docker co
 
 Appearance can match Hermes Desktop (the default), follow your system setting, or stay Light or Dark. The cards rearrange as the plugin pane gets narrower.
 
-Open the dashboard gear to customize Unraid in **Settings → Plugins → Unraid**. **Theme Maker** offers Daybook, Dusk, Coast, Marigold, and Cobalt, with a fictional storage preview and contrast checks. Apply saves the selected Light or Dark palette for your current Desktop profile. To see a saved palette, choose its Light or Dark appearance (or use System to follow your OS). Match Desktop always uses the host theme. Nothing here changes the rest of Hermes or your connection settings.
+Open the dashboard gear to customize Unraid in **Settings → Plugins → Unraid**. **Theme Maker** offers Daybook, Dusk, Coast, Marigold, and Cobalt. For **Anunnaki**, choose **Dark appearance** in Theme Maker, select **Anunnaki**, and click **Apply to Dark**. It uses an Onyx background, bronze cards, gold controls, and a blue memory chart. Apply saves the palette for your current Desktop profile, not the rest of Hermes. To see it on the dashboard, choose **Dark** or use **System** while your OS is dark. **Match Desktop** continues to use the host theme.
 
 The plugin is monitoring-only. It does not use SSH, MCP, shell commands, Unraid Connect, or GraphQL mutations.
 
@@ -29,6 +29,8 @@ The plugin is monitoring-only. It does not use SSH, MCP, shell commands, Unraid 
 All screenshots use made-up data. They do not show a real server.
 
 ![Overview](docs/screenshots/overview.png)
+
+![Overview with the Anunnaki Dark preset](docs/screenshots/overview-anunnaki.png)
 
 ![Unraid Settings with Theme Maker open](docs/screenshots/settings.png)
 
@@ -47,7 +49,7 @@ All screenshots use made-up data. They do not show a real server.
 - Network access from the Hermes backend to the Unraid WebGUI
 - A dedicated Unraid API key with the `VIEWER` role
 
-The monitor has previously been tested with Unraid 7.3; the 0.3.1 Desktop changes were verified offline with synthetic data. GraphQL fields can vary across Unraid releases.
+The monitor has previously been tested with Unraid 7.3. The 0.4.0 Overview and theme were verified offline with synthetic data. GraphQL fields can vary by release; missing optional inventory does not block the other Overview cards.
 
 ## Install
 
@@ -117,7 +119,7 @@ Keep the port if the WebGUI uses a custom one. For example, a WebGUI at `http://
 5. If Unraid is available only over plain HTTP, enable that switch only when both systems communicate over a private network you trust.
 6. Save the settings and open **Unraid** from the Hermes sidebar.
 
-HTTPS certificate verification is always enabled and cannot be bypassed. Fix the certificate or hostname if HTTPS verification fails.
+HTTPS certificate verification is always enabled and cannot be bypassed. Fix the certificate or hostname if HTTPS verification fails. Unraid requests do not follow redirects; enter the final `/graphql` endpoint directly.
 
 ## Troubleshooting
 
@@ -195,7 +197,7 @@ node --experimental-vm-modules scripts/render_screenshot.cjs overview .screensho
 
 ## Project status
 
-Version 0.3.2 hardens the opt-in LAN HTTP mode: it requires a direct connection to a private or loopback address before sending the Unraid API key and does not follow redirects. If you use plain HTTP, configure the final `/graphql` endpoint directly. HTTPS remains the default, and queries and permissions are unchanged. See [the changelog](CHANGELOG.md) for details.
+Version 0.4.0 adds Anunnaki and the updated Overview. The plugin uses fixed, read-only GraphQL queries sent to your configured Unraid endpoint when the monitor is open or refreshed. There is no telemetry or separate background process. See [the changelog](CHANGELOG.md) for details.
 
 ## License
 

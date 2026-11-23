@@ -29,7 +29,7 @@ execute_query = _client.execute_query
 load_config = _client.load_config
 
 router = APIRouter()
-PLUGIN_VERSION = "0.3.2"
+PLUGIN_VERSION = "0.4.0"
 
 
 def _error(status: int, code: str, message: str) -> None:
@@ -72,6 +72,11 @@ def health() -> dict:
 @router.get("/overview")
 def overview() -> dict:
     return _run_query("overview")
+
+
+@router.get("/hardware")
+def hardware() -> dict:
+    return _run_query("hardware")
 
 
 @router.get("/array")

@@ -4,8 +4,10 @@ import importlib.util
 import io
 import json
 import sys
+from email.message import Message
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.response import addinfourl
 
 import pytest
 
@@ -33,6 +35,35 @@ def test_plain_http_requires_explicit_lan_override():
         {"url": "http://tower.local/graphql", "allow_insecure_http": True},
     )
     assert config.endpoint == "http://tower.local/graphql"
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_https_rejects_redirects_with_verified_tls_context(monkeypatch, status):
+    calls = []
+
+    class FixtureResponse(addinfourl):
+        msg = "Redirect"
+
+    class FixtureHTTPS(client.HTTPSHandler):
+        def __init__(self, *, context):
+            assert context.check_hostname
+            assert context.verify_mode == client.ssl.CERT_REQUIRED
+            super().__init__(context=context)
+
+        def https_open(self, request):
+            calls.append(request.full_url)
+            headers = Message()
+            headers["Location"] = "https://redirect.example.invalid/graphql"
+            return FixtureResponse(io.BytesIO(b""), headers, request.full_url, status)
+
+    monkeypatch.setattr(client, "HTTPSHandler", FixtureHTTPS)
+    monkeypatch.setenv("NO_PROXY", "*")
+    endpoint = "https://tower.example.invalid/graphql"
+    with pytest.raises(client.UnraidUpstreamError) as exc:
+        client.execute_query("hardware", client.UnraidConfig(endpoint, "fixture-only"))
+    assert calls == [endpoint]
+    assert exc.value.code == "upstream_http_error"
+    assert exc.value.message == f"Unraid returned HTTP {status}."
 
 
 def test_plain_http_rejects_public_hosts_even_with_override():
@@ -242,7 +273,7 @@ def test_execute_query_sends_key_only_in_header(monkeypatch):
         captured["kwargs"] = kwargs
         return Response()
 
-    monkeypatch.setattr(client, "urlopen", fake_urlopen)
+    monkeypatch.setattr(client, "_open_https", fake_urlopen)
     config = client.UnraidConfig("https://tower.local/graphql", "top-secret", 5)
     result = client.execute_query("overview", config)
 
@@ -258,7 +289,7 @@ def test_authentication_error_does_not_leak_key(monkeypatch):
     def denied(*_args, **_kwargs):
         raise HTTPError("https://tower.local/graphql", 401, "Denied top-secret", {}, None)
 
-    monkeypatch.setattr(client, "urlopen", denied)
+    monkeypatch.setattr(client, "_open_https", denied)
     config = client.UnraidConfig("https://tower.local/graphql", "top-secret")
     with pytest.raises(client.UnraidUpstreamError) as caught:
         client.execute_query("overview", config)
@@ -270,7 +301,7 @@ def test_network_error_is_sanitized(monkeypatch):
     def failed(*_args, **_kwargs):
         raise URLError("connection to 192.0.2.9 failed with token top-secret")
 
-    monkeypatch.setattr(client, "urlopen", failed)
+    monkeypatch.setattr(client, "_open_https", failed)
     config = client.UnraidConfig("https://tower.local/graphql", "top-secret")
     with pytest.raises(client.UnraidUpstreamError) as caught:
         client.execute_query("overview", config)
@@ -280,7 +311,39 @@ def test_network_error_is_sanitized(monkeypatch):
 
 
 def test_only_fixed_read_queries_exist():
-    assert set(client.QUERIES) == {"overview", "array", "docker", "vms", "notifications", "ups", "capabilities"}
+    assert set(client.QUERIES) == {
+        "overview",
+        "hardware",
+        "array",
+        "docker",
+        "vms",
+        "notifications",
+        "ups",
+        "capabilities",
+    }
     for query in client.QUERIES.values():
         assert "mutation " not in query.lower()
         assert not query.lstrip().lower().startswith("mutation")
+
+
+def test_hardware_query_pins_safe_fields_without_serial_or_ids():
+    query = client.QUERIES["hardware"]
+    assert "query HermesUnraidHardware" in query
+    for field in (
+        "hostname",
+        "baseboard",
+        "manufacturer",
+        "model",
+        "memMax",
+        "vendor",
+        "brand",
+        "cores",
+        "threads",
+        "speed",
+        "layout",
+        "size",
+        "type",
+    ):
+        assert field in query
+    assert "serial" not in query
+    assert " id" not in query
