@@ -14,7 +14,7 @@ function activate(view, name) {
   control.onClick();
 }
 
-test('dashboard and Settings show four Kalends icons without visible button labels', async () => {
+test('dashboard and Settings show four distinct appearance icons without visible button labels', async () => {
   const plugin = await loadPlugin();
   const labels = ['Match Desktop', 'System', 'Light', 'Dark'];
   for (const view of [plugin.mountDashboard().render(), plugin.mountSettings().render()]) {
@@ -26,21 +26,32 @@ test('dashboard and Settings show four Kalends icons without visible button labe
       assert.equal(button.title, label);
       assert.equal(button.children.type, 'svg');
       assert.equal(button.children.props['aria-hidden'], true);
-      return button.children.props.children.props.d;
+      const path = button.children.props.children.props;
+      if (label === 'Light') {
+        assert.equal(button.children.props.viewBox, '0 0 32 32');
+        assert.equal(path.fill, 'currentColor');
+        assert.equal(path.transform, 'matrix(1 0 0 1 2.281 2.223)');
+      }
+      return path.d;
     });
     assert.equal(new Set(icons).size, 4);
   }
 });
 
-test('dashboard masthead uses the sidebar server glyph and native Settings gear without a subtitle', async () => {
+test('dashboard masthead uses the sidebar server glyph and shared Settings gear without a subtitle', async () => {
   const plugin = await loadPlugin();
   const sidebarIcon = plugin.registrations.find(({ id }) => id === 'nav').data.codicon;
-  const { html } = plugin.mountDashboard().render();
+  const { html, controls } = plugin.mountDashboard().render();
   assert.match(html, /class="ud-logo"[^>]*>\s*<i[^>]*class="codicon codicon-server"/);
   assert.equal(sidebarIcon, 'server');
   assert.match(html, /<h1[^>]*>Hermes for Unraid<\/h1>/);
   assert.doesNotMatch(html, /Read-only server monitoring/);
-  assert.match(html, /aria-label="Unraid Settings"[^>]*>\s*<i[^>]*class="codicon codicon-settings-gear"/);
+  const gear = controls.get('Unraid Settings').children;
+  assert.equal(gear.type, 'svg');
+  assert.equal(gear.props['aria-hidden'], true);
+  assert.equal(gear.props.viewBox, '0 0 32 32');
+  assert.equal(gear.props.children.props.fill, 'currentColor');
+  assert.equal(gear.props.children.props.transform, 'matrix(1 0 0 1 1.819 2.04)');
   assert.match(html, /Read-only safety mode/);
 });
 
@@ -53,7 +64,7 @@ test('the dashboard title version and Settings both track the plugin release man
   const group = dashboard.elements.find(({ props }) => props.className === 'ud-brand-title');
   assert.ok(title && label && group);
   assert.deepEqual(Array.from(group.props.children, (child) => child.props.className), ['ud-app-title', 'ud-app-version']);
-  assert.equal(label.props.children, `v${version}`);
+  assert.equal(label.props.children, `Plugin v${version}`);
   assert.ok(plugin.mountSettings().render().html.includes(`>v${version}</span>`));
 });
 

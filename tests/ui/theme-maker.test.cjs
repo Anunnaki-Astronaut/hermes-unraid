@@ -38,6 +38,37 @@ test('Theme Maker is collapsed initially and previews the approved presets witho
   assert.deepEqual(f.writes, []);
 });
 
+test('Anunnaki is opt-in and exclusive to Dark; persists without changing the palette schema', async () => {
+  const f = await fixture();
+  f.change('Edit palette', 'light');
+  assert.equal(f.render().controls.has('Anunnaki'), false);
+  f.change('Edit palette', 'dark');
+  f.press('Anunnaki');
+  assert.equal(f.input('Dark Background hex').value, '#0C1420');
+  assert.equal(f.input('Dark Panels hex').value, '#64442D');
+  assert.equal(f.button('Apply to Dark').disabled, false);
+  assert.deepEqual(f.writes, []);
+  f.press('Apply to Dark');
+  assert.deepEqual(f.writes.map(([key, value]) => [key, { ...value }]), [['unraid.palette.v1.sample-a.dark', {
+    background: '#0C1420', panel: '#64442D', text: '#E9EFF6', accent: '#F1BE77', selected: '#533829',
+  }]]);
+  const cold = await fixture({ values: f.values });
+  const themed = cold.plugin.mountDashboard().render().html;
+  assert.match(themed, /data-preset="anunnaki"[^>]*--ud-surface:#64442D/);
+  assert.match(themed, /--ud-featured:#64442D/);
+  assert.match(themed, /--ud-memory-fill:#8ABFE5/);
+  assert.match(themed, /--ud-warn:#F4D786/);
+  assert.match(themed, /--ud-alert:#FFACA4/);
+  cold.change('Dark Panels hex', '#59412F');
+  cold.press('Apply to Dark');
+  assert.doesNotMatch(cold.plugin.mountDashboard().render().html, /data-preset="anunnaki"/);
+  cold.press('Reset to preset');
+  cold.press('Apply to Dark');
+  assert.match(cold.plugin.mountDashboard().render().html, /data-preset="anunnaki"/);
+  cold.press('Match Desktop');
+  assert.doesNotMatch(cold.plugin.mountDashboard().render().html, /data-preset="anunnaki"/);
+});
+
 test('drafts, reset, and applied palettes are independent in Light and Dark', async () => {
   const f = await fixture();
   f.press('Dusk');

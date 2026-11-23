@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Render the real Desktop component against deterministic sample data.
- * Usage: node --experimental-vm-modules scripts/render_screenshot.cjs <tab|settings> <output.html> [match|system|light|dark] [open]
+ * Usage: node --experimental-vm-modules scripts/render_screenshot.cjs <tab|settings> <output.html> [match|system|light|dark] [open] [unavailable] [anunnaki]
  */
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +14,11 @@ if (!validTabs.has(tab)) {
 }
 const output = path.resolve(process.argv[3] || `.screenshots-preview/${tab}.html`);
 const appearance = process.argv[4] || 'match';
-const showMaker = tab === 'settings' && process.argv[5] === 'open';
+const flags = new Set(process.argv.slice(5));
+const showMaker = tab === 'settings' && flags.has('open');
+const missingHardware = tab === 'overview' && flags.has('unavailable');
+const anunnaki = flags.has('anunnaki');
+if (anunnaki && appearance !== 'dark') throw new Error('Anunnaki is a Dark preset');
 if (!new Set(['match', 'system', 'light', 'dark']).has(appearance)) {
   console.error(`Unknown appearance: ${appearance}`);
   process.exit(2);
@@ -38,11 +42,11 @@ const disks = [
   { id: 'cache1', name: 'cache', device: 'nvme0n1', type: 'CACHE', status: 'DISK_OK', temp: 43, numErrors: 0 },
 ];
 const containers = [
-  { id: 'c1', names: ['/Plex'], image: 'lscr.io/linuxserver/plex', state: 'RUNNING', status: 'Up 6 days', lanIpPorts: ['192.168.1.50:32400'] },
-  { id: 'c2', names: ['/Home-Assistant'], image: 'ghcr.io/home-assistant/home-assistant', state: 'RUNNING', status: 'Up 6 days', lanIpPorts: ['192.168.1.50:8123'] },
-  { id: 'c3', names: ['/Immich'], image: 'ghcr.io/immich-app/immich-server', state: 'RUNNING', status: 'Up 3 days', lanIpPorts: ['192.168.1.50:2283'] },
-  { id: 'c4', names: ['/Paperless'], image: 'ghcr.io/paperless-ngx/paperless-ngx', state: 'RUNNING', status: 'Up 3 days', lanIpPorts: ['192.168.1.50:8010'] },
-  { id: 'c5', names: ['/Mealie'], image: 'ghcr.io/mealie-recipes/mealie', state: 'RUNNING', status: 'Up 2 days', lanIpPorts: ['192.168.1.50:9925'] },
+  { id: 'c1', names: ['/Plex'], image: 'lscr.io/linuxserver/plex', state: 'RUNNING', status: 'Up 6 days', lanIpPorts: ['192.0.2.50:32400'] },
+  { id: 'c2', names: ['/Home-Assistant'], image: 'ghcr.io/home-assistant/home-assistant', state: 'RUNNING', status: 'Up 6 days', lanIpPorts: ['192.0.2.50:8123'] },
+  { id: 'c3', names: ['/Immich'], image: 'ghcr.io/immich-app/immich-server', state: 'RUNNING', status: 'Up 3 days', lanIpPorts: ['192.0.2.50:2283'] },
+  { id: 'c4', names: ['/Paperless'], image: 'ghcr.io/paperless-ngx/paperless-ngx', state: 'RUNNING', status: 'Up 3 days', lanIpPorts: ['192.0.2.50:8010'] },
+  { id: 'c5', names: ['/Mealie'], image: 'ghcr.io/mealie-recipes/mealie', state: 'RUNNING', status: 'Up 2 days', lanIpPorts: ['192.0.2.50:9925'] },
   { id: 'c6', names: ['/Archive-Worker'], image: 'example/archive-worker', state: 'EXITED', status: 'Exited (0) 12 hours ago', lanIpPorts: [] },
 ];
 const domains = [
@@ -57,17 +61,32 @@ const array = {
   disks,
 };
 const overviewArray = { state: array.state, capacity: array.capacity, parityCheckStatus: array.parityCheckStatus };
+const GiB = 2 ** 30;
+const cpu = { manufacturer: 'AMD', brand: 'AMD Ryzen 7 7700', cores: 8 };
+const coreOverview = {
+  info: { versions: { core: { unraid: '7.4.1' } }, cpu },
+  metrics: { cpu: { percentTotal: 18.4 }, memory: { total: String(63 * GiB), available: String(42 * GiB) } },
+  array: overviewArray,
+  notifications: { overview: { unread: summary }, warningsAndAlerts: notifications },
+};
+const inventory = {
+  os: { hostname: 'Atlas NAS' },
+  baseboard: { manufacturer: 'ASRock Rack', model: 'B650D4U', memMax: 128 * GiB },
+  cpu: { ...cpu, threads: 16, speed: 3.8 },
+  memory: { layout: Array.from({ length: 2 }, () => ({ size: String(32 * GiB), type: 'DDR5' })) },
+};
 const states = [
   appearance,
   false,
   { loading: false, data: { configured: true }, error: null, updatedAt: now },
-  { loading: false, data: { data: { info: { system: { model: 'Atlas NAS' }, os: { release: 'Unraid 7.3' }, cpu: { brand: 'Intel Xeon E-2224', cores: 4 } }, metrics: { cpu: { percentTotal: 18.4 }, memory: { percentTotal: 46.7 } }, array: overviewArray, notifications: { overview: { unread: summary }, warningsAndAlerts: notifications } } }, error: null, updatedAt: now },
+  { loading: false, data: { data: coreOverview }, error: null, updatedAt: now },
   { loading: false, data: { data: { array } }, error: null, updatedAt: now },
   { loading: false, data: { data: { docker: { containers } } }, error: null, updatedAt: now },
   { loading: false, data: { data: { vms: { domains } } }, error: null, updatedAt: now },
   { loading: false, data: { data: { notifications: { overview: { unread: summary }, warningsAndAlerts: notifications } } }, error: null, updatedAt: now },
   tab,
   false,
+  { loading: false, data: missingHardware ? null : { data: { info: inventory } }, error: missingHardware ? 'Inventory not reported' : null, updatedAt: now },
 ];
 
 const context = vm.createContext({ console, JSON, Date, Map, Math, Number, String, Object, Array, Intl, Promise, Set, window: { setInterval() { return 1; }, clearInterval() {} } });
@@ -89,7 +108,16 @@ const react = new vm.SyntheticModule(['default', 'useCallback', 'useEffect', 'us
 const jsxFn = (type, props, key) => ({ type, props: props || {}, key });
 const runtime = new vm.SyntheticModule(['jsx', 'jsxs'], function () { this.setExport('jsx', jsxFn); this.setExport('jsxs', jsxFn); }, { context });
 const Button = (props) => jsxFn('button', { ...props, className: `preview-button ${props.className || ''}`.trim(), type: 'button' });
-const Codicon = ({ name, size }) => jsxFn('i', { className: `codicon codicon-${name}`, 'aria-hidden': true, style: { fontSize: size } });
+// The standalone fixture does not load the host's icon font. Draw the server
+// stand-in here so the documentation preview doesn't show an empty brand tile.
+const Codicon = ({ name, size }) => name === 'server' ? jsxFn('svg', {
+  width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.25, 'aria-hidden': true, children: [
+    jsxFn('rect', { x: 2.5, y: 3.5, width: 15, height: 5, rx: 1 }),
+    jsxFn('rect', { x: 2.5, y: 11.5, width: 15, height: 5, rx: 1 }),
+    jsxFn('path', { d: 'M5 6h1.5m-1.5 8h1.5M9 6h5m-5 8h5' }),
+  ],
+}) : jsxFn('i', { className: `codicon codicon-${name}`, 'aria-hidden': true, style: { fontSize: size } });
 const StatusDot = ({ tone }) => jsxFn('span', { className: `preview-status-dot preview-${tone}`, 'aria-hidden': true });
 const sdk = new vm.SyntheticModule(['Button', 'Codicon', 'ErrorState', 'GlyphSpinner', 'host', 'PALETTE_AREA', 'ROUTES_AREA', 'SIDEBAR_NAV_AREA', 'StatusDot'], function () {
   this.setExport('Button', Button);
@@ -144,6 +172,9 @@ function render(node, selected) {
   let settings;
   module.namespace.default.register({
     rest() { throw new Error('The screenshot fixture cannot make backend requests'); },
+    storage: { get: (key) => anunnaki && key === 'unraid.palette.v1.default.dark'
+      ? { background: '#0C1420', panel: '#64442D', text: '#E9EFF6', accent: '#F1BE77', selected: '#533829' }
+      : undefined },
     registerMany: (items) => registrations.push(...items),
     registerSettingsPage: (page) => { settings = page; },
   });

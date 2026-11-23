@@ -73,12 +73,13 @@ function sampleResponses(model = 'Atlas NAS') {
     overview: {
       ok: true,
       data: {
-        info: { system: { model }, os: { release: 'Unraid 7.3' }, cpu: { brand: 'Intel Xeon E-2224', cores: 4 } },
-        metrics: { cpu: { percentTotal: 18.4 }, memory: { percentTotal: 46.7 } },
+        info: { os: { release: 'Unraid 7.3' }, versions: { core: { unraid: '7.4.1' } }, cpu: { brand: 'Intel Xeon E-2224', cores: 4 } },
+        metrics: { cpu: { percentTotal: 18.4 }, memory: { total: String(63 * 2 ** 30), available: String(42 * 2 ** 30), percentTotal: 46.7 } },
         array: makeOverviewArray(),
         notifications: { overview: { unread: { info: 197, warning: 25, alert: 15, total: 237 } }, warningsAndAlerts: ALERTS },
       },
     },
+    hardware: { ok: true, data: { info: { os: { hostname: model } } } },
     array: { ok: true, data: { array: makeArray() } },
     docker: { ok: true, data: { docker: { containers: CONTAINERS } } },
     vms: { ok: true, data: { vms: { domains: VMS } } },
@@ -138,11 +139,11 @@ test('overview renders values taken from live API props (not hardcoded)', async 
   for (const expected of [
     'Hermes for Unraid',
     'Atlas NAS',
-    'Unraid 7.3',
+    'Unraid v7.4.1',
     '100.4 TB',
     '121.1 TB',
     '18.4%',
-    '46.7%',
+    '33%',
     'Parity check',
     'Completed',
     '0 errors reported',
@@ -165,7 +166,7 @@ test('overview reflects different API props and fabricates nothing', async () =>
     disks: [],
   };
   const { html } = await loadPlugin({ tab: 'overview', responses });
-  assert.ok(html.includes('Testbox'), 'expected the model prop to drive the title');
+  assert.ok(html.includes('Testbox'), 'expected the hostname prop to drive the title');
   assert.ok(!html.includes('Atlas NAS'), 'must not contain a hardcoded sample model');
   assert.ok(html.includes('1.0 GB'), 'capacity must come from props');
   assert.ok(!html.includes('100.4 TB'), 'must not contain a hardcoded sample capacity');
@@ -188,14 +189,15 @@ test('explicit null capacity and load fields stay unknown', async () => {
   const responses = sampleResponses();
   responses.overview.data.array.capacity.kilobytes = { used: null, total: null, free: null };
   responses.overview.data.metrics.cpu.percentTotal = null;
-  responses.overview.data.metrics.memory.percentTotal = null;
+  responses.overview.data.metrics.memory = { total: null, available: null, percentTotal: 0 };
   const { html } = await loadPlugin({ tab: 'overview', responses });
   assert.ok(!html.includes('0 B'), 'null capacity is not a measured zero');
   assert.ok(html.includes('Usage unknown'));
   assert.match(html, /aria-label="Array capacity used"[^>]*aria-valuetext="Unknown"/);
   assert.doesNotMatch(html, /aria-label="Array capacity used"[^>]*aria-valuenow=/);
-  assert.match(html, /ud-pair-value">Unknown<\/span><span class="ud-pair-label">CPU/);
-  assert.match(html, /ud-pair-value">Unknown<\/span><span class="ud-pair-label">Memory/);
+  assert.match(html, /CPU load<[^>]+>\s*<[^>]+>Not reported/);
+  assert.ok(html.includes('Memory readings unavailable'));
+  assert.doesNotMatch(html, /aria-label="System memory in use"/);
 });
 
 test('null parity progress is not reported as zero', async () => {

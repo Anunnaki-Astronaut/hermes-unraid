@@ -2,6 +2,14 @@
 
 All notable changes are recorded here.
 
+## 0.4.0
+
+- Added **Anunnaki**, an opt-in Dark preset in Theme Maker: Onyx background, burnished-bronze cards, gold controls, and blue memory readings. Existing appearance choices and per-profile palettes are preserved.
+- The Overview now separates the server's full Unraid version from the plugin version and shows dedicated Motherboard / Processor and System Memory cards. Inventory is optional; an unavailable hardware query does not block the rest of Overview.
+- Updated the Settings gear and Light appearance icon to the shared designs.
+- HTTPS requests no longer follow redirects. Enter the final `/graphql` URL directly; HTTPS certificate verification and the read-only `VIEWER` key requirement are unchanged.
+- Verified with synthetic data, not against a live Unraid server.
+
 ## 0.3.2
 
 - Hardened the opt-in plain HTTP mode: verify the connected peer is private or loopback before sending the Unraid API key. Plain HTTP connects directly, ignores proxy settings, and does not follow redirects.

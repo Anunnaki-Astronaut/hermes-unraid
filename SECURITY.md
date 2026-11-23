@@ -17,6 +17,6 @@ Remove API keys, URLs, hostnames, IP addresses, notification text, and other ser
 
 Hermes Unraid is read-only by design. It uses fixed GraphQL queries and does not provide arbitrary GraphQL, mutations, SSH, MCP, or shell access. The Unraid key should always use the `VIEWER` role.
 
-HTTPS certificate verification is always enabled. Plain HTTP is available only through an explicit setting for trusted private networks.
+HTTPS certificate verification is always enabled. The plugin does not follow redirects; configure the final `/graphql` endpoint. Plain HTTP is available only through an explicit setting for trusted private networks.
 
 A security report is especially useful if it shows any of these boundaries can be bypassed.

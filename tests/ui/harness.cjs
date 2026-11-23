@@ -77,6 +77,9 @@ function buildStates(options) {
     state(options.responses?.notifications ?? { data: {} }, options.errors?.notifications),
     tab,
     false,
+    // The /hardware state joins after the tab and refreshing hooks to match
+    // the useEndpoint call order in desktop/plugin.js; do not shift earlier.
+    state(options.responses?.hardware, options.errors?.hardware),
   ];
 }
 
@@ -192,7 +195,7 @@ async function loadPlugin(options = {}) {
     set(key, value) { if (key === 'unraid.appearance') this._value = value; },
   };
   module.namespace.default.register({
-    rest: deny('ctx.rest'),
+    rest: options.rest || deny('ctx.rest'),
     socket: deny('ctx.socket'),
     registerMany: (items) => registrations.push(...items),
     ...(options.legacyHost ? {} : { registerSettingsPage: (page) => settingsPages.push(page) }),
