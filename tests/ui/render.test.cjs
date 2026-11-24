@@ -25,6 +25,24 @@ test('synthetic Array preview includes a spun-down device', () => {
   }
 });
 
+test('synthetic Overview preview renders Anunnaki in both modes', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unraid-anunnaki-preview-'));
+  try {
+    const renderer = path.join(__dirname, '../../scripts/render_screenshot.cjs');
+    for (const [mode, canvas] of [['light', '#FAF8F3'], ['dark', '#0C1420']]) {
+      const output = path.join(dir, `${mode}.html`);
+      execFileSync(process.execPath, ['--experimental-vm-modules', renderer, 'overview', output, mode, 'anunnaki'], { stdio: 'pipe' });
+      const html = fs.readFileSync(output, 'utf8');
+      assert.ok(html.includes(`data-appearance="${mode}"`));
+      assert.ok(html.includes('data-preset="anunnaki"'));
+      assert.ok(html.includes(`--ud-canvas:${canvas}`));
+      assert.ok(html.includes('Showing 3 of 6'));
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 const DISKS = [
   { id: 'parity', name: 'parity', device: 'sda', type: 'PARITY', status: 'DISK_OK', temp: 36, numErrors: 0 },
   { id: 'd1', name: 'disk1', device: 'sdb', type: 'DATA', status: 'DISK_OK', temp: 37, numErrors: 0 },
@@ -181,7 +199,7 @@ test('missing fields show honest placeholders instead of invented values', async
   assert.ok(html.includes('Usage unknown') || html.includes('Unknown'), 'expected unknown capacity copy');
   assert.ok(!html.includes('TB'), 'must not invent capacity figures');
   assert.ok(html.includes('Device details are unavailable.'), 'expected honest unavailable storage copy');
-  assert.ok(html.includes('No Docker containers were returned.'), 'expected empty docker copy');
+  assert.ok(html.includes('Docker container count unavailable.'), 'missing response is not an empty list');
   assert.ok(html.includes('No unread warnings or alerts.'), 'expected empty alert copy');
 });
 

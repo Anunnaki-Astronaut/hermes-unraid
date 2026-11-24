@@ -2,6 +2,13 @@
 
 All notable changes are recorded here.
 
+## 0.4.1
+
+- Added **Anunnaki Light** to Theme Maker: ivory background, pale-bronze cards, and a blue memory chart. The existing Dark preset is unchanged. Apply each palette separately without changing your default appearance.
+- Restored the motherboard model on Overview when the hardware query does not supply one but the existing Overview response includes a system model. The header still shows the Unraid version.
+- The Docker card now shows the total number of containers reported by Unraid, including stopped containers, while previewing up to three. Missing data no longer looks like an empty list.
+- No new queries, polling, or permissions. Automated checks used synthetic Unraid data.
+
 ## 0.4.0
 
 - Added **Anunnaki**, an opt-in Dark preset in Theme Maker: Onyx background, burnished-bronze cards, gold controls, and blue memory readings. Existing appearance choices and per-profile palettes are preserved.
