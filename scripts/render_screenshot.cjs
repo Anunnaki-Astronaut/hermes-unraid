@@ -18,11 +18,15 @@ const flags = new Set(process.argv.slice(5));
 const showMaker = tab === 'settings' && flags.has('open');
 const missingHardware = tab === 'overview' && flags.has('unavailable');
 const anunnaki = flags.has('anunnaki');
-if (anunnaki && appearance !== 'dark') throw new Error('Anunnaki is a Dark preset');
+const anunnakiPalettes = {
+  light: { background: '#FAF8F3', panel: '#EAE2D3', text: '#1C1B1A', accent: '#704718', selected: '#E5D3B7' },
+  dark: { background: '#0C1420', panel: '#64442D', text: '#E9EFF6', accent: '#F1BE77', selected: '#533829' },
+};
 if (!new Set(['match', 'system', 'light', 'dark']).has(appearance)) {
   console.error(`Unknown appearance: ${appearance}`);
   process.exit(2);
 }
+if (anunnaki && !anunnakiPalettes[appearance]) throw new Error('Anunnaki preview requires light or dark appearance');
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'desktop/plugin.js'), 'utf8');
 const now = new Date('2026-10-16T14:45:00-04:00');
@@ -172,8 +176,8 @@ function render(node, selected) {
   let settings;
   module.namespace.default.register({
     rest() { throw new Error('The screenshot fixture cannot make backend requests'); },
-    storage: { get: (key) => anunnaki && key === 'unraid.palette.v1.default.dark'
-      ? { background: '#0C1420', panel: '#64442D', text: '#E9EFF6', accent: '#F1BE77', selected: '#533829' }
+    storage: { get: (key) => anunnaki && key === `unraid.palette.v1.default.${appearance}`
+      ? anunnakiPalettes[appearance]
       : undefined },
     registerMany: (items) => registrations.push(...items),
     registerSettingsPage: (page) => { settings = page; },

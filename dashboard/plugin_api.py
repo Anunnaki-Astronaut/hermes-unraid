@@ -29,7 +29,7 @@ execute_query = _client.execute_query
 load_config = _client.load_config
 
 router = APIRouter()
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.4.1"
 
 
 def _error(status: int, code: str, message: str) -> None:

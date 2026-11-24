@@ -38,11 +38,8 @@ test('Theme Maker is collapsed initially and previews the approved presets witho
   assert.deepEqual(f.writes, []);
 });
 
-test('Anunnaki is opt-in and exclusive to Dark; persists without changing the palette schema', async () => {
+test('Anunnaki Dark remains opt-in and persists without changing the palette schema', async () => {
   const f = await fixture();
-  f.change('Edit palette', 'light');
-  assert.equal(f.render().controls.has('Anunnaki'), false);
-  f.change('Edit palette', 'dark');
   f.press('Anunnaki');
   assert.equal(f.input('Dark Background hex').value, '#0C1420');
   assert.equal(f.input('Dark Panels hex').value, '#64442D');
@@ -177,4 +174,46 @@ test('Marigold and Cobalt apply the exact five Kalends colors in both modes', as
     f.press(`Apply to ${label}`);
     assert.deepEqual(Object.values(f.writes.at(-1)[1]), colors.split(' '));
   }
+});
+
+
+test('Anunnaki Light uses the FigCraft colors and only saves on explicit profile/mode Apply', async () => {
+  const dark = { background: '#0C1420', panel: '#64442D', text: '#E9EFF6', accent: '#F1BE77', selected: '#533829' };
+  const light = { background: '#FAF8F3', panel: '#EAE2D3', text: '#1C1B1A', accent: '#704718', selected: '#E5D3B7' };
+  const darkKey = 'unraid.palette.v1.sample-a.dark';
+  const lightKey = 'unraid.palette.v1.sample-a.light';
+  const f = await fixture({ values: new Map([['unraid.appearance','dark'], [darkKey,dark]]) });
+  const darkBefore = f.plugin.mountDashboard().render().html;
+  f.change('Edit palette', 'light');
+  f.press('Anunnaki');
+  assert.equal(f.input('Light Background hex').value, light.background);
+  assert.equal(f.input('Light Panels hex').value, light.panel);
+  assert.equal(f.button('Apply to Light').disabled, false);
+  assert.match(f.render().html, /us-storage-preview[^>]*--ud-memory-fill:#295D87/);
+  assert.deepEqual(f.writes, []);
+  assert.equal(f.values.has(lightKey), false);
+  assert.equal(f.plugin.mountDashboard().render().html, darkBefore);
+  f.press('Apply to Light');
+  assert.deepEqual(f.writes.map(([key, value]) => [key, { ...value }]), [[lightKey,light]]);
+  assert.equal(f.values.get(darkKey), dark);
+  assert.equal(f.values.get('unraid.appearance'), 'dark');
+  assert.equal(f.plugin.mountDashboard().render().html, darkBefore);
+  f.press('Light');
+  const applied = f.plugin.mountDashboard().render().html;
+  assert.match(applied, /data-appearance="light"[^>]*data-preset="anunnaki"[^>]*--ud-canvas:#FAF8F3/);
+  for (const token of ['--ud-surface:#EAE2D3','--ud-accent:#704718','--ud-topbar:#F0E1CB','--ud-chrome:#F5ECDD','--ud-memory-fill:#295D87','--ud-memory-track:#AEC0CF','--ud-warn:#69490C','--ud-alert:#883635']) assert.ok(applied.includes(token), token);
+  const cold = await fixture({ values: f.values });
+  assert.match(cold.render().html, /data-appearance="light"[^>]*data-preset="anunnaki"/);
+  cold.press('Match Desktop');
+  assert.doesNotMatch(cold.render().html, /data-preset="anunnaki"/);
+  cold.press('System');
+  assert.match(cold.render().html, /data-appearance="light"[^>]*--ud-canvas:#FAF8F3/);
+  cold.plugin.setSystemDark(true);
+  assert.match(cold.render().html, /data-appearance="dark"[^>]*--ud-canvas:#0C1420/);
+  cold.plugin.setSystemDark(false);
+  assert.match(cold.render().html, /data-appearance="light"[^>]*--ud-canvas:#FAF8F3/);
+  const other = await fixture({ profile:'sample-b', values:f.values });
+  assert.doesNotMatch(other.plugin.mountDashboard().render().html, /data-preset="anunnaki"/);
+  assert.deepEqual(other.writes, []);
+  assert.deepEqual(cold.plugin.forbiddenCalls, []);
 });

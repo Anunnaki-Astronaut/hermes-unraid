@@ -60,8 +60,8 @@ function render(node, Fragment, visit = () => {}) {
 
 function buildStates(options) {
   const tab = options.tab || 'overview';
-  const state = (response, error) => ({
-    loading: false,
+  const state = (response, error, loading = false) => ({
+    loading,
     data: response ?? null,
     error: error ?? null,
     updatedAt: NOW,
@@ -72,7 +72,7 @@ function buildStates(options) {
     state(options.responses?.health ?? { configured: true }),
     state(options.responses?.overview ?? { data: {} }, options.errors?.overview),
     state(options.responses?.array ?? { data: {} }, options.errors?.array),
-    state(options.responses?.docker ?? { data: {} }, options.errors?.docker),
+    state(options.responses?.docker ?? { data: {} }, options.errors?.docker, options.loading?.docker),
     state(options.responses?.vms ?? { data: {} }, options.errors?.vms),
     state(options.responses?.notifications ?? { data: {} }, options.errors?.notifications),
     tab,

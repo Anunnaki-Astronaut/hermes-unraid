@@ -17,7 +17,7 @@ const SERVER_ICON = 'server';
 const SETTINGS_ROUTE = '/settings?tab=plugins&plugin=unraid';
 const AGENT_SETTINGS_ROUTE = '/settings?tab=plugins&agent=unraid';
 // Shared by the Dashboard and Settings; the UI tests check it against plugin.yaml.
-const PLUGIN_VERSION = '0.4.0';
+const PLUGIN_VERSION = '0.4.1';
 const APPEARANCE_KEY = 'unraid.appearance';
 const APPEARANCE_CHOICES = ['match', 'system', 'light', 'dark'];
 const APPEARANCE_LABELS = { match: 'Match Desktop', system: 'System', light: 'Light', dark: 'Dark' };
@@ -53,15 +53,17 @@ const PRESETS = {
     dark: { background: '#10182F', panel: '#1B2850', text: '#E8F0FF', accent: '#9FB4FF', selected: '#304787' },
   },
 };
-// Anunnaki is an optional Dark-only preset. Exact palette matching preserves
-// the existing storage schema and drops fixed overrides when the user customizes it.
+// Anunnaki is opt-in per mode. Exact palette matching preserves the existing
+// storage schema and drops the preset-specific overrides after customization.
 const ANUNNAKI = { background: '#0C1420', panel: '#64442D', text: '#E9EFF6', accent: '#F1BE77', selected: '#533829' };
+const ANUNNAKI_LIGHT = { background: '#FAF8F3', panel: '#EAE2D3', text: '#1C1B1A', accent: '#704718', selected: '#E5D3B7' };
+const ANUNNAKI_BY_MODE = { light: ANUNNAKI_LIGHT, dark: ANUNNAKI };
 const presetsFor = (mode) => ({
   ...Object.fromEntries(Object.entries(PRESETS).map(([name, pair]) => [name, pair[mode]])),
-  ...(mode === 'dark' ? { Anunnaki: ANUNNAKI } : {}),
+  ...(ANUNNAKI_BY_MODE[mode] ? { Anunnaki: ANUNNAKI_BY_MODE[mode] } : {}),
 });
 const samePalette = (a, b) => Object.keys(PALETTE_FIELDS).every((key) => a?.[key] === b[key]);
-const isAnunnaki = (palette, mode) => mode === 'dark' && samePalette(palette, ANUNNAKI);
+const isAnunnaki = (palette, mode) => Boolean(ANUNNAKI_BY_MODE[mode]) && samePalette(palette, ANUNNAKI_BY_MODE[mode]);
 const hexColor = (value) => typeof value === 'string' && /^[#][0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : null;
 const MODES = ['light', 'dark'];
 
@@ -151,7 +153,7 @@ function themeStyle(palette, mode) {
     '--ui-bg-card': panel, '--ui-bg-secondary': panel, '--ui-bg-tertiary': selected,
     '--ui-text-primary': text, '--ui-text-secondary': text, '--ui-text-tertiary': text,
     '--ui-stroke-secondary': divider, '--ui-stroke-tertiary': divider, '--ui-accent': accent,
-    ...(isAnunnaki(palette, mode) ? {
+    ...(mode === 'dark' && isAnunnaki(palette, mode) ? {
       '--ud-topbar': '#3D2D26', '--ud-chrome': '#281F1C', '--ud-divider': '#9A6B45',
       '--ud-divider-soft': '#9A6B45', '--ud-control-border': '#AD8A6D',
       '--ud-text-2': '#DCC9B6', '--ud-text-3': '#DCC9B6', '--ud-on-featured-2': '#DCC9B6',
@@ -161,6 +163,17 @@ function themeStyle(palette, mode) {
       '--ud-featured-badge': '#244638', '--ud-track': '#362820', '--ud-track-fill': '#DFAC73',
       '--ud-memory-fill': '#8ABFE5', '--ud-memory-track': '#425A72',
       '--ui-stroke-secondary': '#9A6B45', '--ui-stroke-tertiary': '#9A6B45',
+    } : {}),
+    ...(mode === 'light' && isAnunnaki(palette, mode) ? {
+      '--ud-topbar': '#F0E1CB', '--ud-chrome': '#F5ECDD', '--ud-divider': '#B19576',
+      '--ud-divider-soft': '#B19576', '--ud-control-border': '#806244',
+      '--ud-text-2': '#584738', '--ud-text-3': '#584738', '--ud-on-featured-2': '#584738',
+      '--ud-on-chrome-muted': '#584738', '--ud-on-chrome-faint': '#584738',
+      '--ud-good': '#24553B', '--ud-good-bright': '#24553B', '--ud-warn': '#69490C',
+      '--ud-alert': '#883635', '--ud-badge-bg': '#F2DBD3', '--ud-badge-text': '#883635',
+      '--ud-featured-badge': '#DCE8DC', '--ud-track': '#D7C2A6', '--ud-track-fill': '#80501D',
+      '--ud-memory-fill': '#295D87', '--ud-memory-track': '#AEC0CF',
+      '--ui-stroke-secondary': '#B19576', '--ui-stroke-tertiary': '#B19576',
     } : {}),
   };
 }
@@ -1010,10 +1023,12 @@ function joinedIdentity(maker, name) {
   return `${prefix} ${suffix}`;
 }
 
-function MotherboardProcessorCard({ inventory, coreCpu, load }) {
+function MotherboardProcessorCard({ inventory, coreSystem, coreCpu, load }) {
   const board = inventory?.baseboard;
   const cpu = inventory?.cpu;
-  const boardName = joinedIdentity(board?.manufacturer, board?.model);
+  const boardModel = reportedText(board?.model);
+  // Some servers expose the board identity only as the system model in /overview.
+  const boardName = boardModel ? joinedIdentity(board?.manufacturer, boardModel) : reportedText(coreSystem?.model);
   const cpuName = joinedIdentity(reportedText(cpu?.manufacturer) || reportedText(cpu?.vendor) || coreCpu?.manufacturer, reportedText(cpu?.brand) || coreCpu?.brand);
   const positiveCount = (value) => {
     const count = overviewNumber(value);
@@ -1183,16 +1198,19 @@ function StoragePreviewCard({ disks, onOpen }) {
   });
 }
 
-function DockerPreviewCard({ containers, onOpen }) {
-  const visible = (containers || []).slice(0, 3);
+function DockerPreviewCard({ containers, loading, onOpen }) {
+  const visible = containers?.slice(0, 3) || [];
   return jsxs('article', {
     className: 'ud-card',
     children: [
-      jsx('div', {
+      jsxs('div', {
         className: 'ud-card-head',
-        children: jsxs('div', {
-          children: [jsx('h3', { className: 'ud-card-title', children: 'Docker' }), jsx('div', { className: 'ud-card-sub', children: 'Container status' })],
-        }),
+        children: [
+          jsxs('div', {
+            children: [jsx('h3', { className: 'ud-card-title', children: 'Docker' }), jsx('div', { className: 'ud-card-sub', children: 'Container status' })],
+          }),
+          containers ? jsx('span', { className: 'ud-card-sub', children: `${containers.length} reported` }) : null,
+        ],
       }),
       visible.length
         ? jsx('div', {
@@ -1220,8 +1238,15 @@ function DockerPreviewCard({ containers, onOpen }) {
               }, container.id || `${name}-${index}`);
             }),
           })
-        : jsx('div', { className: 'ud-empty', children: 'No Docker containers were returned.' }),
-      jsx('div', { className: 'ud-card-foot', children: jsx('button', { type: 'button', className: 'ud-linkbtn', onClick: onOpen, children: 'View Docker →' }) }),
+        : jsx('div', {
+            className: 'ud-empty',
+            children: containers ? 'No Docker containers were returned.' : loading ? 'Loading Docker containers…' : 'Docker container count unavailable.',
+          }),
+      jsx('div', { className: 'ud-card-foot', children: jsx('button', {
+        type: 'button', className: 'ud-linkbtn', onClick: onOpen,
+        children: containers && containers.length > visible.length
+          ? `Showing ${visible.length} of ${containers.length} · View Docker →` : 'View Docker →',
+      }) }),
     ],
   });
 }
@@ -1266,7 +1291,7 @@ function AttentionCard({ groups, summary, onOpen }) {
   });
 }
 
-function OverviewView({ overview, inventory, array, disks, containers, alertGroups, alertSummary, onTab }) {
+function OverviewView({ overview, inventory, array, disks, containers, dockerLoading, alertGroups, alertSummary, onTab }) {
   const info = overview?.info;
   const metrics = overview?.metrics;
   const hostname = reportedText(inventory?.os?.hostname);
@@ -1288,7 +1313,7 @@ function OverviewView({ overview, inventory, array, disks, containers, alertGrou
       jsxs('section', { className: 'ud-system', 'aria-label': 'System', children: [
         jsx('h3', { className: 'ud-system-heading', children: 'System' }),
         jsxs('div', { className: 'ud-grid-2', children: [
-          jsx(MotherboardProcessorCard, { inventory, coreCpu: info?.cpu, load: metrics?.cpu?.percentTotal }),
+          jsx(MotherboardProcessorCard, { inventory, coreSystem: info?.system, coreCpu: info?.cpu, load: metrics?.cpu?.percentTotal }),
           jsx(SystemMemoryCard, { readings: metrics?.memory, inventory }),
         ] }),
       ] }),
@@ -1296,7 +1321,7 @@ function OverviewView({ overview, inventory, array, disks, containers, alertGrou
         className: 'ud-grid-3',
         children: [
           jsx(StoragePreviewCard, { disks, onOpen: () => onTab('array') }),
-          jsx(DockerPreviewCard, { containers, onOpen: () => onTab('docker') }),
+          jsx(DockerPreviewCard, { containers, loading: dockerLoading, onOpen: () => onTab('docker') }),
           jsx(AttentionCard, { groups: alertGroups, summary: alertSummary, onOpen: () => onTab('alerts') }),
         ],
       }),
@@ -1532,7 +1557,9 @@ function UnraidPage() {
   // records come from /array. Never let a disk-less overview object mask them.
   const array = overviewArray || arrayPayload;
   const storageDisks = resolveArrayDisks(overviewArray, arrayPayload);
-  const containers = docker.data?.data?.docker?.containers || [];
+  const reportedContainers = docker.data?.data?.docker?.containers;
+  // A failed refresh may retain old data. Don't present a stale count as current.
+  const containers = !docker.error && Array.isArray(reportedContainers) ? reportedContainers : null;
   const alertItems = alerts.data?.data?.notifications?.warningsAndAlerts || overviewData?.notifications?.warningsAndAlerts || [];
   const alertGroups = useMemo(() => groupAlerts(alertItems), [alertItems]);
   const alertSummary = alerts.data?.data?.notifications?.overview?.unread || overviewData?.notifications?.overview?.unread;
@@ -1621,7 +1648,7 @@ function UnraidPage() {
           }) : null,
           anyError ? jsx('div', { className: 'ud-error', children: jsx(ErrorState, { title: 'Some Unraid data could not be loaded', description: anyError, onRetry: refreshAll }) }) : null,
           configured && initialLoading ? jsxs('div', { className: 'ud-loading', children: [jsx(GlyphSpinner, {}), 'Loading Unraid data…'] }) : null,
-          configured && !initialLoading && tab === 'overview' ? jsx(OverviewView, { overview: overviewData, inventory, array, disks: storageDisks, containers, alertGroups, alertSummary, onTab: setTab }) : null,
+          configured && !initialLoading && tab === 'overview' ? jsx(OverviewView, { overview: overviewData, inventory, array, disks: storageDisks, containers, dockerLoading: docker.loading && !docker.error, alertGroups, alertSummary, onTab: setTab }) : null,
           configured && !initialLoading && tab === 'array' ? jsx(ArrayView, { payload: arrayData.data }) : null,
           configured && !initialLoading && tab === 'docker' ? jsx(DockerView, { payload: docker.data }) : null,
           configured && !initialLoading && tab === 'vms' ? jsx(VmView, { payload: vms.data }) : null,

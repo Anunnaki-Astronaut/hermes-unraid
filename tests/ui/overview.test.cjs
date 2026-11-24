@@ -8,7 +8,7 @@ function fixture() {
   return {
     health: { configured: true },
     overview: { data: {
-      info: { os: { release: 'Linux 6.12' }, system: { model: 'Not the hostname' }, versions: { core: { unraid: '7.4.1', api: '4.37.12' } } },
+      info: { os: { release: 'Linux 6.12' }, system: { model: 'FixtureBoard Legacy X1' }, versions: { core: { unraid: '7.4.1', api: '4.37.12' } } },
       array: { state: 'STARTED', parityCheckStatus: { status: 'COMPLETED', errors: 0 } },
       notifications: { overview: { unread: { alert: 0, warning: 2, total: 2 } } },
       metrics: { cpu: { percentTotal: 18.4 }, memory: { total: String(63 * GiB), available: String(42 * GiB), used: String(44 * GiB), percentTotal: 99 } },
@@ -63,7 +63,8 @@ test('the approved summary stays first; the motherboard tile shows only reported
   f.hardware.data.info.baseboard = { manufacturer: 'ASRock Rack' };
   f.hardware.data.info.cpu = { vendor: 'AuthenticAMD', cores: 0, speed: -1 };
   const partial = (await view(f)).html;
-  assert.match(partial, /ASRock Rack/);
+  assert.match(partial, /<dd>FixtureBoard Legacy X1<\/dd>/);
+  assert.doesNotMatch(partial, /ASRock Rack FixtureBoard/);
   assert.match(partial, /AuthenticAMD/);
   assert.doesNotMatch(partial, /0 cores|0 threads|-1 GHz|undefined|>B650D4U</);
 });
@@ -82,7 +83,7 @@ test('denied old-schema hardware cannot degrade working Overview or preview card
   assert.equal(requests.filter(path => path === '/hardware').length, 1);
   assert.ok(requests.includes('/overview'));
   const { html } = dashboard.render();
-  for (const text of ['Unraid v7.4.1', 'STARTED'.toLowerCase(), 'Completed', 'Notifications', '21 GiB', '42 GiB', 'Storage devices', 'Needs attention']) {
+  for (const text of ['Unraid v7.4.1', 'STARTED'.toLowerCase(), 'Completed', 'Notifications', 'FixtureBoard Legacy X1', '21 GiB', '42 GiB', 'Storage devices', 'Needs attention']) {
     assert.ok(html.toLowerCase().includes(text.toLowerCase()), `core data should preserve ${text}`);
   }
   assert.doesNotMatch(html, /class="ud-error"|Synthetic GraphQL error|Atlas NAS|B650D4U|64 GiB DDR5/);
@@ -120,4 +121,64 @@ test('invalid or contradictory inventory cannot be presented as installed memory
   const { html } = await view(f);
   assert.match(html, /63 GiB usable/);
   assert.doesNotMatch(html, /DDR5 installed|16 GiB max/);
+});
+
+
+test('the motherboard falls back by model, with no mixed manufacturers or fabricated identity', async () => {
+  const f = fixture();
+  f.hardware.data.info.baseboard = { manufacturer: 'Primary Fixture Maker', model: '  FixtureBoard R2  ' };
+  assert.match((await view(f)).html, /<dd>Primary Fixture Maker FixtureBoard R2<\/dd>/);
+  f.hardware.data.info.baseboard.model = '  ';
+  assert.match((await view(f)).html, /<dd>FixtureBoard Legacy X1<\/dd>/);
+  f.overview.data.info.system.model = ' ';
+  assert.match((await view(f)).html, /<dt>Motherboard<\/dt><dd>Not reported<\/dd>/);
+});
+
+function dockerFixture(list) {
+  const f = fixture();
+  f.docker = { data: { docker: { containers: list } } };
+  return f;
+}
+
+function dockerCard(html) {
+  const start = html.indexOf('>Docker</h3>');
+  assert.ok(start >= 0);
+  return html.slice(start, html.indexOf('</article>', start));
+}
+
+test('Overview counts the complete Docker list, and its link opens the full view', async () => {
+  const items = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((name, i) => ({
+    id: `sample-${name}`, names: [`/sample-${name}`], state: i % 2 ? 'EXITED' : 'RUNNING',
+  }));
+  const plugin = await loadPlugin({ responses: dockerFixture(items) });
+  const dashboard = plugin.mountDashboard();
+  const overview = dashboard.render();
+  const card = dockerCard(overview.html);
+  assert.match(card, />5 reported</);
+  assert.match(card, /Showing 3 of 5/);
+  assert.match(card, /sample-beta/); // A stopped container still counts.
+  assert.doesNotMatch(card, /sample-delta|sample-epsilon/);
+  overview.controls.get('Showing 3 of 5 · View Docker →').onClick();
+  assert.match(dashboard.render().html, /sample-epsilon/);
+  assert.deepEqual(plugin.forbiddenCalls, []);
+  const short = dockerCard((await view(dockerFixture(items.slice(0, 2)))).html);
+  assert.match(short, />2 reported</);
+  assert.doesNotMatch(short, /Showing /);
+});
+
+test('Docker reports zero only for an empty successful response', async () => {
+  const empty = dockerCard((await view(dockerFixture([]))).html);
+  assert.match(empty, />0 reported</);
+  assert.match(empty, /No Docker containers were returned/);
+  for (const unavailable of [undefined, null, {}]) {
+    const card = dockerCard((await view(dockerFixture(unavailable))).html);
+    assert.match(card, /Docker container count unavailable/);
+    assert.doesNotMatch(card, /0 reported/);
+  }
+  const failed = dockerCard((await view(dockerFixture([]), { errors: { docker: 'Synthetic Docker error' } })).html);
+  assert.match(failed, /Docker container count unavailable/);
+  assert.doesNotMatch(failed, /0 reported/);
+  const loading = dockerCard((await view(fixture(), { loading: { docker: true } })).html);
+  assert.match(loading, /Loading Docker containers/);
+  assert.doesNotMatch(loading, /0 reported/);
 });

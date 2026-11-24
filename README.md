@@ -11,22 +11,24 @@ A read-only Unraid monitor for Hermes Desktop. It puts array capacity, Docker co
 ## What it shows
 
 - Server name and full Unraid version, separate from the plugin version
-- Motherboard and processor details, CPU load, and memory use when the API reports them
+- Motherboard and processor details, CPU load, and memory use when the API reports them. The motherboard card falls back to the system-reported model when the separate hardware response has no board model.
 - Array capacity, parity-check state, storage temperatures, and reported errors
 - An asleep indicator when Unraid explicitly reports a drive spun down and no temperature is available
-- Running and stopped Docker containers
+- Running and stopped Docker containers, with the total reported on Overview and the full list in the Docker tab
 - Running and shut-down virtual machines
 - Grouped warning and alert notifications
 
 Appearance can match Hermes Desktop (the default), follow your system setting, or stay Light or Dark. The cards rearrange as the plugin pane gets narrower.
 
-Open the dashboard gear to customize Unraid in **Settings → Plugins → Unraid**. **Theme Maker** offers Daybook, Dusk, Coast, Marigold, and Cobalt. For **Anunnaki**, choose **Dark appearance** in Theme Maker, select **Anunnaki**, and click **Apply to Dark**. It uses an Onyx background, bronze cards, gold controls, and a blue memory chart. Apply saves the palette for your current Desktop profile, not the rest of Hermes. To see it on the dashboard, choose **Dark** or use **System** while your OS is dark. **Match Desktop** continues to use the host theme.
+Open the dashboard gear to customize Unraid in **Settings → Plugins → Unraid**. **Theme Maker** offers Daybook, Dusk, Coast, Marigold, Cobalt, and **Anunnaki** in both Light and Dark. Light uses an ivory background and pale-bronze cards; Dark keeps the Onyx background and burnished-bronze cards. Both use bronze or gold controls and a blue memory chart.
+
+To apply Anunnaki, choose **Light appearance** or **Dark appearance** in Theme Maker, select **Anunnaki**, then click **Apply to Light** or **Apply to Dark**. The preview does not change your saved palette until you apply it. Each palette is saved separately for the current Desktop profile. To see it on the dashboard, choose the matching **Light** or **Dark** mode, or use **System** with that appearance set in your OS. **Match Desktop** continues to use the host theme.
 
 The plugin is monitoring-only. It does not use SSH, MCP, shell commands, Unraid Connect, or GraphQL mutations.
 
 ## Screenshots
 
-All screenshots use made-up data. They do not show a real server.
+All screenshots use made-up data. They do not show a real server, and some show an earlier plugin version.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -49,7 +51,7 @@ All screenshots use made-up data. They do not show a real server.
 - Network access from the Hermes backend to the Unraid WebGUI
 - A dedicated Unraid API key with the `VIEWER` role
 
-The monitor has previously been tested with Unraid 7.3. The 0.4.0 Overview and theme were verified offline with synthetic data. GraphQL fields can vary by release; missing optional inventory does not block the other Overview cards.
+The monitor has previously been tested with Unraid 7.3. Automated verification for the 0.4.1 changes used synthetic data. GraphQL fields can vary by release; missing optional inventory does not block the other Overview cards.
 
 ## Install
 
@@ -168,8 +170,9 @@ You can also disable or remove the Desktop part from **Capabilities → Plugins*
 ## Security and privacy
 
 - The API key is stored in Hermes' protected profile credential store and is never sent to Desktop JavaScript.
+- Agent settings save the server URL and LAN HTTP option for the selected Hermes backend profile. The appearance mode is stored locally in Hermes Desktop; custom palettes are stored separately for each Desktop profile and mode.
 - The backend sends the key only to the configured Unraid origin in the `x-api-key` header.
-- The URL parser rejects embedded credentials, query strings, fragments, non-HTTP schemes, and endpoints that do not end in `/graphql`.
+- The URL parser defaults a bare WebGUI address to `/graphql`. It rejects other paths, embedded credentials, query strings, fragments, and non-HTTP(S) schemes.
 - Desktop callers can use only fixed read-only queries; they cannot send arbitrary GraphQL.
 - Upstream error bodies are not passed through to the Desktop page.
 - The plugin has no telemetry.
@@ -193,11 +196,12 @@ The checked-in screenshots are rendered from the real Desktop component with det
 
 ```bash
 node --experimental-vm-modules scripts/render_screenshot.cjs overview .screenshots-preview/overview.html
+node --experimental-vm-modules scripts/render_screenshot.cjs overview .screenshots-preview/overview-anunnaki-light.html light anunnaki
 ```
 
 ## Project status
 
-Version 0.4.0 adds Anunnaki and the updated Overview. The plugin uses fixed, read-only GraphQL queries sent to your configured Unraid endpoint when the monitor is open or refreshed. There is no telemetry or separate background process. See [the changelog](CHANGELOG.md) for details.
+Version 0.4.1 adds Anunnaki Light and improves the motherboard and Docker cards on Overview. The plugin uses fixed, read-only GraphQL queries sent to your configured Unraid endpoint when the monitor is open or refreshed. There is no telemetry or separate background process. See [the changelog](CHANGELOG.md) for details.
 
 ## License
 
